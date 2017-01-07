@@ -1,6 +1,19 @@
 module Main where
 
-import Lib
+import Control.Concurrent.STM
+import System.INotify
+import PrivateCloud.FileWatch
 
 main :: IO ()
-main = someFunc
+main = withINotify $ \notify -> do
+    queue <- atomically $ newTQueue
+    watchLocalDir notify "/tmp/a" queue
+    loop queue
+    where
+    loop queue = do
+        event <- atomically $ readTQueue queue
+        case event of
+            Gone -> return ()
+            _ -> do
+                putStrLn $ "-- " ++ show event
+                loop queue
