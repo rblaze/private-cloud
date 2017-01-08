@@ -7,7 +7,7 @@ import PrivateCloud.FileWatch
 main :: IO ()
 main = withINotify $ \notify -> do
     queue <- atomically $ newTQueue
-    watchLocalDir notify "/tmp/a" queue
+    watchTree notify "/tmp/a" queue
     loop queue
     where
     loop queue = do

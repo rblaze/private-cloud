@@ -1,11 +1,13 @@
 {-# LANGUAGE NamedFieldPuns #-}
 module PrivateCloud.FileWatch
     ( FileEvent(..)
-    , watchLocalDir
+    , watchTree
     ) where
 
 import Control.Concurrent.STM
+import Control.Exception.Safe
 import Control.Monad
+import System.Directory
 import System.FilePath
 import System.INotify as I
 
@@ -17,6 +19,11 @@ data FileEvent
     | Gone                      -- root is now missing
     deriving Show
 
+data ReportDirs
+    = Report
+    | DontReport
+    deriving Eq
+
 events :: [EventVariety]
 events =
     [ CloseWrite
@@ -27,40 +34,41 @@ events =
     , NoSymlink
     ]
 
-watchLocalDir :: INotify -> FilePath -> TQueue FileEvent -> IO ()
-watchLocalDir notify path queue =
-    -- рекурсивно обойти каталоги, добавить на каждый watch
-    -- при создании каталога обойти и его
-    -- при удалении каталога грохнуть всех детишек
-    -- move in и move out обрабатывать как new/delete
-    void $ addWatch
-        notify
-        ([DeleteSelf, MoveSelf] ++ events)
-        path
-        (handleRootEvent notify path queue)
+watchTree :: INotify -> FilePath -> TQueue FileEvent -> IO ()
+watchTree notify root queue = do
+    _ <- addWatch notify events root $ \event -> do
+        handleEvent notify queue root event
+        -- handle extra events for root dir
+        case event of
+            I.Ignored{} -> atomically $ writeTQueue queue $ Gone
+            _ -> return ()
+    entries <- listDirectory root
+    forM_ entries $ \entry -> let nextPath = root </> entry
+                               in recurse notify queue DontReport nextPath
 
-handleRootEvent :: INotify -> FilePath -> TQueue FileEvent -> Event -> IO ()
-handleRootEvent notify path queue event = do
-    handleEvent notify path queue event
-    -- handle extra events for root dir
-    case event of
-        I.MovedSelf{} -> putStrLn "moved self"
-        I.Unmounted{} -> atomically $ writeTQueue queue $ Gone
-        I.DeletedSelf{} -> atomically $ writeTQueue queue $ Gone
-        _ -> return ()
+recurse :: INotify -> TQueue FileEvent -> ReportDirs -> FilePath -> IO ()
+recurse notify queue reportDirs path = do
+    putStrLn $ "adding watch " ++ path
+    handleIO print $ do
+        _ <- addWatch notify events path (handleEvent notify queue path)
+        when (reportDirs == Report) $ atomically $ writeTQueue queue $ DirCreated path
+        entries <- listDirectory path
+        forM_ entries $ \entry -> let nextPath = path </> entry
+                                   in recurse notify queue reportDirs nextPath
 
-handleEvent :: INotify -> FilePath -> TQueue FileEvent -> Event -> IO ()
-handleEvent notify path queue event = do
+handleEvent :: INotify -> TQueue FileEvent -> FilePath -> Event -> IO ()
+handleEvent notify queue path event = do
     putStrLn $ (show event) ++ " @ " ++ path
     let fullPath = path </> filePath event
     case event of
         I.Created{isDirectory = True} -> do
-            _ <- addWatch notify events fullPath
-                    (handleEvent notify fullPath queue)
-            atomically $ writeTQueue queue $ DirCreated fullPath
+            -- add watch for new directory
+            recurse notify queue Report fullPath
         I.Closed{maybeFilePath = Just p, wasWriteable = True} ->
             atomically $ writeTQueue queue $ FileUpdated (path </> p)
-        I.MovedOut{} -> putStrLn $ fullPath ++ " moved out"
-        I.MovedIn{} -> putStrLn $ fullPath ++ " moved in"
-        I.Deleted{} -> atomically $ writeTQueue queue $ PrivateCloud.FileWatch.Deleted fullPath
+--        I.MovedOut{} -> putStrLn $ fullPath ++ " moved out"
+--        I.MovedIn{} -> putStrLn $ fullPath ++ " moved in"
+        I.Deleted{} ->
+            -- watch removed automatically
+            atomically $ writeTQueue queue $ PrivateCloud.FileWatch.Deleted fullPath
         _ -> return ()
