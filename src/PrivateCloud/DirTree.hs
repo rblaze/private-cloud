@@ -1,20 +1,46 @@
+{-# Language NamedFieldPuns, RecordWildCards #-}
 module PrivateCloud.DirTree where
 
+import Data.List
+import Data.Function
 import System.Directory.Tree
+import System.FilePath
 import System.Posix.Files
 import System.Posix.Types
 
 data FileInfo
     = FileInfo
-    { fiLength :: FileOffset
-    , fiModTime :: EpochTime
-    }
+        { fiLength :: FileOffset
+        , fiModTime :: EpochTime
+        }
     | NotAFile
     deriving (Eq, Show)
 
-diffTree :: DirTree FileInfo -> DirTree FileInfo -> [FilePath]
-diffTree prev@Dir{} next@Dir{} = []
-diffTree _ _ = error "internal error: invalid tree types in diffTree"
+type FileList = [(FilePath, FileInfo)]
+
+unrollTreeFiles :: DirTree FileInfo -> FileList
+unrollTreeFiles = go ""
+    where
+    go base File{name, file = f@FileInfo{}} = [(base </> name, f)]
+    go base Dir{..} = concatMap (go $ base </> name) contents
+    go _ _ = []
+
+getChangedFiles :: FileList -> FileList -> [FilePath]
+getChangedFiles [] xs = map fst xs
+getChangedFiles xs [] = map fst xs
+getChangedFiles l@(left : ls) r@(right : rs) =
+    case compare (fst left) (fst right) of
+        LT -> fst left : getChangedFiles ls r
+        GT -> fst right : getChangedFiles l rs
+        EQ -> if snd left == snd right
+                then getChangedFiles ls rs
+                else fst left : getChangedFiles ls rs
+
+sortDirByName :: DirTree a -> DirTree a
+sortDirByName = transformDir sortD
+    where
+    sortD (Dir n cs) = Dir n (sortBy (compare `on` name) cs)
+    sortD c = c
 
 makeTree :: FilePath -> IO (DirTree FileInfo)
 makeTree root = do
@@ -23,4 +49,4 @@ makeTree root = do
         return $ if isRegularFile st
             then FileInfo { fiLength = fileSize st, fiModTime = modificationTime st }
             else NotAFile
-    return tree
+    return $ sortDirByName tree
