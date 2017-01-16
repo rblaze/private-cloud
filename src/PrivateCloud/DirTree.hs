@@ -19,7 +19,7 @@ data FileInfo
 type FileList = [(FilePath, FileInfo)]
 
 unrollTreeFiles :: DirTree FileInfo -> FileList
-unrollTreeFiles = go ""
+unrollTreeFiles tree = go "" tree{name = ""}
     where
     go base File{name, file = f@FileInfo{}} = [(base </> name, f)]
     go base Dir{..} = concatMap (go $ base </> name) contents

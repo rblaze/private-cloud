@@ -1,12 +1,18 @@
 import Control.Exception.Safe
+import Data.ByteArray.Encoding
 import System.Directory
 import System.Directory.Tree
 import System.FilePath
+import System.IO
+import System.IO.Temp
 import System.Posix.Files
-import System.Random
+import System.Posix.IO
 import Test.Tasty
 import Test.Tasty.HUnit
+import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Lazy as BL
 
+import PrivateCloud.Aws
 import PrivateCloud.DirTree
 
 main :: IO ()
@@ -22,18 +28,10 @@ tests = testGroup "PrivateCloud tests"
         , testCase "getChangedFiles detects timestamp change" testGetChangedFilesTS
         , testCase "getChangedFiles detects type change" testGetChangedFilesType
         ]
+    , testGroup "Crypto tests"
+        [ testCase "file HMAC" testFileHMAC
+        ]
     ]
-
-withTmpDir :: (FilePath -> FilePath -> Assertion) -> Assertion
-withTmpDir func = do
-    tmpbase <- getTemporaryDirectory
-    tmpid <- randomIO :: IO Word
-    let tmpname = "privatecloud-test-" ++ show tmpid
-    let tmpdir = tmpbase </> tmpname
-    bracket_
-        (createDirectory tmpdir)
-        (removeDirectoryRecursive tmpdir)
-        (func tmpbase tmpname)
 
 clearTree :: DirTree FileInfo -> DirTree FileInfo
 clearTree = fmap step
@@ -66,8 +64,8 @@ sampleTree = Dir { name = "root", contents =
     ]}
 
 testMakeTree :: Assertion
-testMakeTree = withTmpDir $ \tmpbase tmpname -> do
-    let tmpdir = tmpbase </> tmpname
+testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
+    let tmpname = last $ splitDirectories tmpdir
     createDirectoryIfMissing True (tmpdir </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (tmpdir </> "a" </> "b" </> "e" </> "f")
     createNamedPipe (tmpdir </> "a" </> "b" </> "c" </> "pipe") ownerReadMode
@@ -103,8 +101,8 @@ testUnrollTreeFiles :: Assertion
 testUnrollTreeFiles = do
     let files = unrollTreeFiles sampleTree
     assertEqual "Incorrect files extracted"
-        [ ("root/a/b/c/foo", FileInfo { fiLength = 3, fiModTime = 42 })
-        , ("root/a/b/e/f/foo", FileInfo { fiLength = 4, fiModTime = 18 })
+        [ ("a/b/c/foo", FileInfo { fiLength = 3, fiModTime = 42 })
+        , ("a/b/e/f/foo", FileInfo { fiLength = 4, fiModTime = 18 })
         ]
         files
 
@@ -134,8 +132,8 @@ testGetChangedFilesMove = do
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "root/a/b/c/foo"
-        , "root/a/b/foo"
+        [ "a/b/c/foo"
+        , "a/b/foo"
         ]
         diff
 
@@ -165,7 +163,7 @@ testGetChangedFilesResize = do
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "root/a/b/c/foo" ]
+        [ "a/b/c/foo" ]
         diff
 
 testGetChangedFilesTS :: Assertion
@@ -194,7 +192,7 @@ testGetChangedFilesTS = do
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "root/a/b/e/f/foo" ]
+        [ "a/b/e/f/foo" ]
         diff
 
 testGetChangedFilesType :: Assertion
@@ -223,8 +221,18 @@ testGetChangedFilesType = do
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "root/a/b/c/pipe"
-        , "root/a/b/e/f"
-        , "root/a/b/e/f/foo"
+        [ "a/b/c/pipe"
+        , "a/b/e/f"
+        , "a/b/e/f/foo"
         ]
         diff
+
+testFileHMAC :: Assertion
+testFileHMAC = withSystemTempFile "hmactest.dat" $ \filename h -> do
+    BL.hPut h $ BL.take (1024 * 1024 * 3 + 150) $ BL.iterate (+ 1) 0
+    hFlush h
+    hmac <- bracket (openFd filename ReadOnly Nothing defaultFileFlags) closeFd getFileHash
+    let strHash = show hmac
+    assertEqual "HMAC mismatch" "ab78ef7a3a7b02b2ef50ee1a17e43ae0c134e0bece468b047780626264301831" strHash
+    let base64 = BS8.unpack $ convertToBase Base64 hmac
+    assertEqual "HMAC BASE64 mismatch" "q3jvejp7ArLvUO4aF+Q64ME04L7ORosEd4BiYmQwGDE=" base64
