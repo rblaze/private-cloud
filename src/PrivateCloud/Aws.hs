@@ -1,4 +1,4 @@
-{-# Language BangPatterns, OverloadedStrings #-}
+{-# Language BangPatterns, OverloadedStrings, RecordWildCards #-}
 module PrivateCloud.Aws where
 
 import Aws.Aws
@@ -10,7 +10,8 @@ import Crypto.Hash
 import Crypto.MAC.HMAC
 import Data.ByteArray
 import Data.ByteArray.Encoding
-import Network.HTTP.Client (Manager)
+import Network.HTTP.Client (Manager, newManager)
+import Network.HTTP.Client.TLS
 import System.FilePath
 import System.Posix.Files
 import System.Posix.IO
@@ -20,8 +21,21 @@ import qualified Data.ByteString.Char8 as BS8
 -- import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 
-domain :: T.Text
-domain = "privatecloud"
+data CloudInfo = CloudInfo
+    { ciConfig :: Configuration
+    , ciManager :: Manager
+    , ciDomain :: T.Text
+    }
+
+defaultCloudInfo :: IO CloudInfo
+defaultCloudInfo = do
+    manager <- newManager tlsManagerSettings
+    config <- baseConfiguration
+    return CloudInfo
+        { ciConfig = config
+        , ciManager = manager
+        , ciDomain = "privatecloud"
+        }
 
 getFileHash :: Fd -> IO (Digest SHA512t_256)
 getFileHash fd = do
@@ -37,8 +51,8 @@ getFileHash fd = do
     result <- loop ctx
     return $ hmacGetDigest result
 
-uploadFileInfo :: Configuration -> Manager -> FilePath -> FilePath -> IO ()
-uploadFileInfo config manager root file = bracket
+uploadFileInfo :: CloudInfo -> FilePath -> FilePath -> IO ()
+uploadFileInfo CloudInfo{..} root file = bracket
     (openFd (root </> file) ReadOnly Nothing defaultFileFlags)
     closeFd
     $ \fd -> do
@@ -53,7 +67,7 @@ uploadFileInfo config manager root file = bracket
                     , replaceAttribute "size" (T.pack $ show size)
                     , replaceAttribute "mtime" (T.pack $ show mtime)
                     ]
-                    domain
-            void $ memoryAws config defServiceConfig manager command
+                    ciDomain
+            void $ memoryAws ciConfig defServiceConfig ciManager command
             print file
             print fileHash
