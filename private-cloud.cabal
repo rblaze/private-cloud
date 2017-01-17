@@ -28,6 +28,7 @@ library
                      , http-client
                      , http-client-tls
                      , memory
+                     , resourcet
                      , safe-exceptions
                      , text
                      , unix

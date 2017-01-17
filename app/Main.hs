@@ -7,7 +7,9 @@ import PrivateCloud.DirTree
 
 main :: IO ()
 main = do
-    [root] <- getArgs
+--    [root] <- getArgs
     config <- defaultCloudInfo
-    baseList <- unrollTreeFiles <$> makeTree root
-    uploadFileInfo config root (fst $ head baseList)
+--    baseList <- unrollTreeFiles <$> makeTree root
+--    uploadFileInfo config root (fst $ head baseList)
+    files <- getServerFiles config
+    print files

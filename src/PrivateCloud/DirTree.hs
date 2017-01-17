@@ -3,6 +3,7 @@ module PrivateCloud.DirTree where
 
 import Data.List
 import Data.Function
+import Data.Text (Text)
 import System.Directory.Tree
 import System.FilePath
 import System.Posix.Files
@@ -12,6 +13,7 @@ data FileInfo
     = FileInfo
         { fiLength :: FileOffset
         , fiModTime :: EpochTime
+        , fiHash :: Maybe Text
         }
     | NotAFile
     deriving (Eq, Show)
@@ -47,6 +49,10 @@ makeTree root = do
     _ :/ tree <- flip readDirectoryWith root $ \path -> do
         st <- getFileStatus path
         return $ if isRegularFile st
-            then FileInfo { fiLength = fileSize st, fiModTime = modificationTime st }
+            then FileInfo
+                { fiLength = fileSize st
+                , fiModTime = modificationTime st 
+                , fiHash = Nothing
+                }
             else NotAFile
     return $ sortDirByName tree

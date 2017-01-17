@@ -47,7 +47,7 @@ sampleTree = Dir { name = "root", contents =
                 [ Dir { name = "d", contents = [] }
                 , File
                     { name = "foo"
-                    , file = FileInfo { fiLength = 3, fiModTime = 42 }
+                    , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                     }
                 , File { name = "pipe", file = NotAFile }
                 ]}
@@ -55,7 +55,7 @@ sampleTree = Dir { name = "root", contents =
                 [ Dir { name = "f", contents =
                     [ File
                         { name = "foo"
-                        , file = FileInfo { fiLength = 4, fiModTime = 18 }
+                        , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                         }
                     ]}
                 ]}
@@ -80,7 +80,7 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 3, fiModTime = 0 }
+                            , file = FileInfo { fiLength = 3, fiModTime = 0, fiHash = Nothing }
                             }
                         , File { name = "pipe", file = NotAFile }
                         ]}
@@ -88,7 +88,7 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 0 }
+                                , file = FileInfo { fiLength = 4, fiModTime = 0, fiHash = Nothing }
                                 }
                             ]}
                         ]}
@@ -101,8 +101,8 @@ testUnrollTreeFiles :: Assertion
 testUnrollTreeFiles = do
     let files = unrollTreeFiles sampleTree
     assertEqual "Incorrect files extracted"
-        [ ("a/b/c/foo", FileInfo { fiLength = 3, fiModTime = 42 })
-        , ("a/b/e/f/foo", FileInfo { fiLength = 4, fiModTime = 18 })
+        [ ("a/b/c/foo", FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing })
+        , ("a/b/e/f/foo", FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing })
         ]
         files
 
@@ -118,13 +118,13 @@ testGetChangedFilesMove = do
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 18 }
+                                , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                                 }
                             ]}
                         ]}
                     , File
                         { name = "foo"
-                        , file = FileInfo { fiLength = 3, fiModTime = 42 }
+                        , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                         }
                     , File { name = "pipe", file = NotAFile }
                     ]}
@@ -146,7 +146,7 @@ testGetChangedFilesResize = do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 4, fiModTime = 42 }
+                            , file = FileInfo { fiLength = 4, fiModTime = 42, fiHash = Nothing }
                             }
                         , File { name = "pipe", file = NotAFile }
                         ]}
@@ -154,7 +154,7 @@ testGetChangedFilesResize = do
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 18 }
+                                , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                                 }
                             ]}
                         ]}
@@ -175,7 +175,7 @@ testGetChangedFilesTS = do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 3, fiModTime = 42 }
+                            , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                             }
                         , File { name = "pipe", file = NotAFile }
                         ]}
@@ -183,7 +183,7 @@ testGetChangedFilesTS = do
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 19 }
+                                , file = FileInfo { fiLength = 4, fiModTime = 19, fiHash = Nothing }
                                 }
                             ]}
                         ]}
@@ -204,16 +204,16 @@ testGetChangedFilesType = do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 3, fiModTime = 42 }
+                            , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                             }
                         , File
                             { name = "pipe"
-                            , file = FileInfo { fiLength = 10, fiModTime = 10 }}
+                            , file = FileInfo { fiLength = 10, fiModTime = 10, fiHash = Nothing }}
                         ]}
                     , Dir { name = "e", contents =
                         [ File
                             { name = "f"
-                            , file = FileInfo { fiLength = 4, fiModTime = 18 }
+                            , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                             }
                         ]}
                     ]}
