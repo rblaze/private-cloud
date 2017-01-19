@@ -7,10 +7,7 @@ import Aws.SimpleDb
 import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.Trans.Resource
-import Crypto.Hash
-import Crypto.MAC.HMAC
-import Data.ByteArray hiding (concat)
-import Data.ByteArray.Encoding
+import Data.Function
 import Data.List
 import Data.Maybe
 import Data.Monoid
@@ -20,13 +17,11 @@ import Network.HTTP.Client.TLS
 import System.FilePath
 import System.Posix.Files
 import System.Posix.IO
-import System.Posix.Types
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
--- import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.Read as T
 
+import PrivateCloud.Crypto
 import PrivateCloud.DirTree
 
 data CloudInfo = CloudInfo
@@ -45,40 +40,23 @@ defaultCloudInfo = do
         , ciDomain = "privatecloud"
         }
 
-getFileHash :: Fd -> IO (Digest SHA512t_256)
-getFileHash fd = do
-    let bufsize = 1024 * 1024
-    array <- create bufsize $ const $ return ()
-    let loop !ctx = do
-            bytesRead <- withByteArray (array :: Bytes) $ \ptr ->
-                fdReadBuf fd ptr (fromIntegral bufsize)
-            if bytesRead == 0
-                then return $ finalize ctx
-                else loop $ update ctx (takeView array $ fromIntegral bytesRead)
-    let ctx = initialize $ BS.pack [102,111,111,98,97,114]
-    result <- loop ctx
-    return $ hmacGetDigest result
+uploadFileInfo :: CloudInfo -> FilePath -> FileInfo -> IO ()
+uploadFileInfo CloudInfo{..} file FileInfo{..} = do
+-- change to a single attribute with a record storing all values.
+-- no need to bother if they present or not, also makes encryption easier.
+-- XXX think about versioning? Maybe use protobufs or bond.
+    let command = putAttributes (T.pack file)
+            [ replaceAttribute "hash" (maybe T.empty T.decodeUtf8 $ fiHash) -- XXX remove attr
+            , replaceAttribute "size" (T.pack $ show fiLength)
+            , replaceAttribute "mtime" (T.pack $ show fiModTime)
+            ]
+            ciDomain
+    void $ memoryAws ciConfig defServiceConfig ciManager command
 
-uploadFileInfo :: CloudInfo -> FilePath -> FilePath -> IO ()
-uploadFileInfo CloudInfo{..} root file = bracket
-    (openFd (root </> file) ReadOnly Nothing defaultFileFlags)
-    closeFd
-    $ \fd -> do
-        status <- getFdStatus fd
-        when (isRegularFile status) $ do
-            let size = fileSize status
-            let mtime = modificationTime status
-            fileHash <- getFileHash fd
-            let hashVal = convertToBase Base64 fileHash
-            let command = putAttributes (T.pack file)
-                    [ replaceAttribute "hash" (T.pack $ BS8.unpack hashVal)
-                    , replaceAttribute "size" (T.pack $ show size)
-                    , replaceAttribute "mtime" (T.pack $ show mtime)
-                    ]
-                    ciDomain
-            void $ memoryAws ciConfig defServiceConfig ciManager command
-            print file
-            print fileHash
+deleteFileInfo :: CloudInfo -> FilePath -> IO ()
+deleteFileInfo CloudInfo{..} file =
+    void $ memoryAws ciConfig defServiceConfig ciManager $
+        deleteAttributes (T.pack file) [] ciDomain
 
 getServerFiles :: CloudInfo -> IO [(FilePath, FileInfo)]
 getServerFiles CloudInfo{..} = do
@@ -98,7 +76,7 @@ getServerFiles CloudInfo{..} = do
             , sNextToken = Nothing
             }
     items <- loop $ Just firstQuery
-    return $ mapMaybe conv $ concat items
+    return $ sortBy (compare `on` fst) $ mapMaybe conv $ concat items
     where
     readDec t = case T.decimal t of
                     Right (v, "") -> Just v
@@ -112,6 +90,49 @@ getServerFiles CloudInfo{..} = do
             , FileInfo
                 { fiLength = size
                 , fiModTime = CTime mtime
-                , fiHash = filehash
+                , fiHash = T.encodeUtf8 <$> filehash
                 }
             )
+
+updateInfo :: CloudInfo -> FilePath -> FileChangeInfo -> IO ()
+updateInfo _ _ (_, Nothing, Nothing) = error "Internal error: state transition from Nothing to Nothing"
+updateInfo config _ (file, Just _, Nothing) = do
+    putStrLn $ "deleting " ++  file
+    deleteFileInfo config file
+updateInfo config root (file, Nothing, Just _) = do
+    putStrLn $ "adding " ++  file
+    bracket
+        (openFd (root </> file) ReadOnly Nothing defaultFileFlags)
+        closeFd
+        $ \fd -> do
+            status <- getFdStatus fd
+            when (isRegularFile status) $ do
+                let size = fileSize status
+                let mtime = modificationTime status
+                fileHash <- getFileHash fd
+                -- TODO upload file here
+                uploadFileInfo config file FileInfo
+                    { fiLength = size
+                    , fiModTime = mtime
+                    , fiHash = Just fileHash
+                    }
+                print fileHash
+updateInfo config root (file, Just serverData, Just _) = do
+    putStrLn $ "updating " ++  file
+    bracket
+        (openFd (root </> file) ReadOnly Nothing defaultFileFlags)
+        closeFd
+        $ \fd -> do
+            status <- getFdStatus fd
+            when (isRegularFile status) $ do
+                let size = fileSize status
+                let mtime = modificationTime status
+                fileHash <- Just <$> getFileHash fd
+                when (fiHash serverData /= fileHash) $ do
+                    -- TODO upload file here
+                    uploadFileInfo config file FileInfo
+                        { fiLength = size
+                        , fiModTime = mtime
+                        , fiHash = fileHash
+                        }
+                    print fileHash

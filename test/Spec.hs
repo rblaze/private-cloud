@@ -1,3 +1,4 @@
+{-# Language OverloadedStrings #-}
 import Control.Exception.Safe
 import Data.ByteArray.Encoding
 import System.Directory
@@ -9,10 +10,10 @@ import System.Posix.Files
 import System.Posix.IO
 import Test.Tasty
 import Test.Tasty.HUnit
-import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
-import PrivateCloud.Aws
+import PrivateCloud.Crypto
 import PrivateCloud.DirTree
 
 main :: IO ()
@@ -33,13 +34,12 @@ tests = testGroup "PrivateCloud tests"
         ]
     ]
 
-clearTree :: DirTree FileInfo -> DirTree FileInfo
-clearTree = fmap step
+clearTree :: DirTree (Maybe FileInfo) -> DirTree (Maybe FileInfo)
+clearTree = fmap (fmap fixModTime)
     where
-    step NotAFile = NotAFile
-    step f@FileInfo{} = f{fiModTime = 0}
+    fixModTime f = f{fiModTime = 0}
 
-sampleTree :: DirTree FileInfo
+sampleTree :: DirTree (Maybe FileInfo)
 sampleTree = Dir { name = "root", contents =
     [ Dir { name = "a", contents =
         [ Dir { name = "b", contents =
@@ -47,15 +47,15 @@ sampleTree = Dir { name = "root", contents =
                 [ Dir { name = "d", contents = [] }
                 , File
                     { name = "foo"
-                    , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
+                    , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                     }
-                , File { name = "pipe", file = NotAFile }
+                , File { name = "pipe", file = Nothing }
                 ]}
             , Dir { name = "e", contents =
                 [ Dir { name = "f", contents =
                     [ File
                         { name = "foo"
-                        , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
+                        , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                         }
                     ]}
                 ]}
@@ -80,15 +80,15 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 3, fiModTime = 0, fiHash = Nothing }
+                            , file = Just FileInfo { fiLength = 3, fiModTime = 0, fiHash = Nothing }
                             }
-                        , File { name = "pipe", file = NotAFile }
+                        , File { name = "pipe", file = Nothing }
                         ]}
                     , Dir { name = "e", contents =
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 0, fiHash = Nothing }
+                                , file = Just FileInfo { fiLength = 4, fiModTime = 0, fiHash = Nothing }
                                 }
                             ]}
                         ]}
@@ -118,22 +118,22 @@ testGetChangedFilesMove = do
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
+                                , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                                 }
                             ]}
                         ]}
                     , File
                         { name = "foo"
-                        , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
+                        , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                         }
-                    , File { name = "pipe", file = NotAFile }
+                    , File { name = "pipe", file = Nothing }
                     ]}
                 ]}
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "a/b/c/foo"
-        , "a/b/foo"
+        [ ("a/b/c/foo" , Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }, Nothing)
+        , ("a/b/foo", Nothing, Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing })
         ]
         diff
 
@@ -146,15 +146,15 @@ testGetChangedFilesResize = do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 4, fiModTime = 42, fiHash = Nothing }
+                            , file = Just FileInfo { fiLength = 4, fiModTime = 42, fiHash = Nothing }
                             }
-                        , File { name = "pipe", file = NotAFile }
+                        , File { name = "pipe", file = Nothing }
                         ]}
                     , Dir { name = "e", contents =
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
+                                , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                                 }
                             ]}
                         ]}
@@ -163,7 +163,7 @@ testGetChangedFilesResize = do
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "a/b/c/foo" ]
+        [ ("a/b/c/foo" , Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }, Just FileInfo { fiLength = 4, fiModTime = 42, fiHash = Nothing }) ]
         diff
 
 testGetChangedFilesTS :: Assertion
@@ -175,15 +175,15 @@ testGetChangedFilesTS = do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
+                            , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                             }
-                        , File { name = "pipe", file = NotAFile }
+                        , File { name = "pipe", file = Nothing }
                         ]}
                     , Dir { name = "e", contents =
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = FileInfo { fiLength = 4, fiModTime = 19, fiHash = Nothing }
+                                , file = Just FileInfo { fiLength = 4, fiModTime = 19, fiHash = Nothing }
                                 }
                             ]}
                         ]}
@@ -192,7 +192,7 @@ testGetChangedFilesTS = do
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "a/b/e/f/foo" ]
+        [ ("a/b/e/f/foo", Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }, Just FileInfo { fiLength = 4, fiModTime = 19, fiHash = Nothing }) ]
         diff
 
 testGetChangedFilesType :: Assertion
@@ -204,16 +204,16 @@ testGetChangedFilesType = do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
+                            , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
                             }
                         , File
                             { name = "pipe"
-                            , file = FileInfo { fiLength = 10, fiModTime = 10, fiHash = Nothing }}
+                            , file = Just FileInfo { fiLength = 10, fiModTime = 10, fiHash = Nothing }}
                         ]}
                     , Dir { name = "e", contents =
                         [ File
                             { name = "f"
-                            , file = FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
+                            , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
                             }
                         ]}
                     ]}
@@ -221,9 +221,9 @@ testGetChangedFilesType = do
             ]}
     let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
     assertEqual "Incorrect change detected"
-        [ "a/b/c/pipe"
-        , "a/b/e/f"
-        , "a/b/e/f/foo"
+        [ ("a/b/c/pipe", Nothing, Just FileInfo { fiLength = 10, fiModTime = 10, fiHash = Nothing })
+        , ("a/b/e/f", Nothing, Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing })
+        , ("a/b/e/f/foo", Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }, Nothing)
         ]
         diff
 
@@ -232,7 +232,7 @@ testFileHMAC = withSystemTempFile "hmactest.dat" $ \filename h -> do
     BL.hPut h $ BL.take (1024 * 1024 * 3 + 150) $ BL.iterate (+ 1) 0
     hFlush h
     hmac <- bracket (openFd filename ReadOnly Nothing defaultFileFlags) closeFd getFileHash
-    let strHash = show hmac
-    assertEqual "HMAC mismatch" "ab78ef7a3a7b02b2ef50ee1a17e43ae0c134e0bece468b047780626264301831" strHash
-    let base64 = BS8.unpack $ convertToBase Base64 hmac
-    assertEqual "HMAC BASE64 mismatch" "q3jvejp7ArLvUO4aF+Q64ME04L7ORosEd4BiYmQwGDE=" base64
+    assertEqual "HMAC BASE64 mismatch" "q3jvejp7ArLvUO4aF+Q64ME04L7ORosEd4BiYmQwGDE=" hmac
+    let Right decodedHMAC = convertFromBase Base64 hmac
+    let printableHMAC = convertToBase Base16 $ (decodedHMAC :: BS.ByteString)
+    assertEqual "HMAC mismatch" "ab78ef7a3a7b02b2ef50ee1a17e43ae0c134e0bece468b047780626264301831" (printableHMAC :: BS.ByteString)
