@@ -252,8 +252,7 @@ testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
     let srcsize = 123
     withConnection filename $ \conn -> do
         initDatabase conn
-        withTransaction conn $
-            putFileInfo conn "foo" srchash srcsize
+        putFileInfo conn "foo" srchash srcsize
     Just (hash, size) <- withConnection filename $ \conn -> do
         getFileInfo conn "foo"
     assertEqual "invalid hash read" srchash hash
@@ -267,8 +266,7 @@ testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
     let srcsize = 123
     withConnection filename $ \conn -> do
         initDatabase conn
-        withTransaction conn $
-            putFileInfo conn "foo" srchash srcsize
+        putFileInfo conn "foo" srchash srcsize
     Just (hash, size) <- withConnection filename $ \conn -> do
         initDatabase conn
         getFileInfo conn "foo"
@@ -285,10 +283,8 @@ testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
     let secondSize = 1024
     withConnection filename $ \conn -> do
         initDatabase conn
-        withTransaction conn $
-            putFileInfo conn "foo" srchash srcsize
-        withTransaction conn $
-            putFileInfo conn "foo" secondHash secondSize
+        putFileInfo conn "foo" srchash srcsize
+        putFileInfo conn "foo" secondHash secondSize
     Just (hash, size) <- withConnection filename $ \conn -> do
         getFileInfo conn "foo"
     assertEqual "invalid hash read" secondHash hash
@@ -304,12 +300,10 @@ testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
         initDatabase conn
         v <- getFileInfo conn "foo"
         assertEqual "unexpected data found" Nothing v
-        withTransaction conn $
-            putFileInfo conn "foo" srchash srcsize
+        putFileInfo conn "foo" srchash srcsize
     Just (hash, size) <- withConnection filename $ \conn -> do
         v <- getFileInfo conn "foo"
-        withTransaction conn $
-            deleteFileInfo conn "foo"
+        deleteFileInfo conn "foo"
         return v
     assertEqual "invalid hash read" srchash hash
     assertEqual "invalid size read" srcsize size
