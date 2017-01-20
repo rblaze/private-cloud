@@ -15,6 +15,7 @@ import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Crypto
 import PrivateCloud.DirTree
+import PrivateCloud.LocalDb
 
 main :: IO ()
 main = defaultMain tests
@@ -30,7 +31,13 @@ tests = testGroup "PrivateCloud tests"
         , testCase "getChangedFiles detects type change" testGetChangedFilesType
         ]
     , testGroup "Crypto tests"
-        [ testCase "file HMAC" testFileHMAC
+        [ testCase "File HMAC correct" testFileHMAC
+        ]
+    , testGroup "Local database tests"
+        [ testCase "Add and read works" testDbAddRead
+        , testCase "Double initialization don't cause data loss" testDbDoubleInit
+        , testCase "Update works" testDbUpdate
+        , testCase "Remove works" testDbDelete
         ]
     ]
 
@@ -236,3 +243,77 @@ testFileHMAC = withSystemTempFile "hmactest.dat" $ \filename h -> do
     let Right decodedHMAC = convertFromBase Base64 hmac
     let printableHMAC = convertToBase Base16 $ (decodedHMAC :: BS.ByteString)
     assertEqual "HMAC mismatch" "ab78ef7a3a7b02b2ef50ee1a17e43ae0c134e0bece468b047780626264301831" (printableHMAC :: BS.ByteString)
+
+testDbAddRead :: Assertion
+testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
+    hClose h
+    removeFile filename
+    let srchash = "12345"
+    let srcsize = 123
+    withConnection filename $ \conn -> do
+        initDatabase conn
+        withTransaction conn $
+            putFileInfo conn "foo" srchash srcsize
+    Just (hash, size) <- withConnection filename $ \conn -> do
+        getFileInfo conn "foo"
+    assertEqual "invalid hash read" srchash hash
+    assertEqual "invalid size read" srcsize size
+
+testDbDoubleInit :: Assertion
+testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
+    hClose h
+    removeFile filename
+    let srchash = "12345"
+    let srcsize = 123
+    withConnection filename $ \conn -> do
+        initDatabase conn
+        withTransaction conn $
+            putFileInfo conn "foo" srchash srcsize
+    Just (hash, size) <- withConnection filename $ \conn -> do
+        initDatabase conn
+        getFileInfo conn "foo"
+    assertEqual "invalid hash read" srchash hash
+    assertEqual "invalid size read" srcsize size
+
+testDbUpdate :: Assertion
+testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
+    hClose h
+    removeFile filename
+    let srchash = "12345"
+    let srcsize = 123
+    let secondHash = "78901"
+    let secondSize = 1024
+    withConnection filename $ \conn -> do
+        initDatabase conn
+        withTransaction conn $
+            putFileInfo conn "foo" srchash srcsize
+        withTransaction conn $
+            putFileInfo conn "foo" secondHash secondSize
+    Just (hash, size) <- withConnection filename $ \conn -> do
+        getFileInfo conn "foo"
+    assertEqual "invalid hash read" secondHash hash
+    assertEqual "invalid size read" secondSize size
+
+testDbDelete :: Assertion
+testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
+    hClose h
+    removeFile filename
+    let srchash = "12345"
+    let srcsize = 123
+    withConnection filename $ \conn -> do
+        initDatabase conn
+        v <- getFileInfo conn "foo"
+        assertEqual "unexpected data found" Nothing v
+        withTransaction conn $
+            putFileInfo conn "foo" srchash srcsize
+    Just (hash, size) <- withConnection filename $ \conn -> do
+        v <- getFileInfo conn "foo"
+        withTransaction conn $
+            deleteFileInfo conn "foo"
+        return v
+    assertEqual "invalid hash read" srchash hash
+    assertEqual "invalid size read" srcsize size
+
+    v <- withConnection filename $ \conn ->
+        getFileInfo conn "foo"
+    assertEqual "data found after delete" Nothing v
