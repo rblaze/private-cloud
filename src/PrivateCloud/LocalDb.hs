@@ -1,30 +1,41 @@
-{-# Language OverloadedStrings #-}
-module PrivateCloud.LocalDb
-    ( module PrivateCloud.LocalDb
-    , Connection
-    , withConnection
-    ) where
+{-# Language OverloadedStrings, RecordWildCards #-}
+module PrivateCloud.LocalDb where
 
 import Database.SQLite.Simple
-import Data.Word
-import qualified Data.ByteString as BS
+import Foreign.C.Types
 
-initDatabase :: Connection -> IO ()
-initDatabase conn = withTransaction conn $
-    execute_ conn "CREATE TABLE IF NOT EXISTS localFiles (file TEXT PRIMARY KEY NOT NULL, lastSyncedHash TEXT, lastSyncedSize INT)"
+import PrivateCloud.FileInfo
 
-getFileInfo :: Connection -> FilePath -> IO (Maybe (BS.ByteString, Word64))
-getFileInfo conn file = do
-    result <- query conn "SELECT lastSyncedHash, lastSyncedSize FROM localFiles WHERE file = ?" (Only file)
-    case result of
-        [v@(_, _)] -> return $ Just v
-        [] -> return Nothing
-        _ -> error $ "Internal error: db response format violation, " ++ show result
+data DbInfo = DbInfo
+    { dbConnection :: Connection
+    }
 
-putFileInfo :: Connection -> FilePath -> BS.ByteString -> Word64 -> IO ()
-putFileInfo conn file hash size = withTransaction conn $
-    execute conn "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize) VALUES (?,?,?)" (file, hash, size)
+withDatabase :: FilePath -> (DbInfo -> IO a) -> IO a
+withDatabase path f =
+    withConnection path $ \conn -> do
+        withTransaction conn $
+            execute_ conn "CREATE TABLE IF NOT EXISTS localFiles (file TEXT PRIMARY KEY NOT NULL, lastSyncedHash TEXT, lastSyncedSize INT, lastSyncedModTime INT)"
+        let db = DbInfo { dbConnection = conn }
+        f db
 
-deleteFileInfo :: Connection -> FilePath -> IO ()
-deleteFileInfo conn file = withTransaction conn $
+getFileList :: DbInfo -> IO [(FilePath, FileInfo)]
+getFileList DbInfo{ dbConnection = conn } =
+    map convertRow <$> query_ conn "SELECT file, lastSyncedHash, lastSyncedSize, lastSyncedModTime FROM localFiles ORDER BY file"
+    where
+    convertRow (file, hash, size, ts) =
+        ( file
+        , FileInfo
+            { fiHash = hash
+            , fiLength = size
+            , fiModTime = CTime ts
+            }
+        )
+
+putFileInfo :: DbInfo -> FilePath -> FileInfo -> IO ()
+putFileInfo DbInfo{ dbConnection = conn } file FileInfo{..} = withTransaction conn $ do
+    let CTime ts = fiModTime
+    execute conn "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize, lastSyncedModTime) VALUES (?,?,?,?)" (file, fiHash, fiLength, ts)
+
+deleteFileInfo :: DbInfo -> FilePath -> IO ()
+deleteFileInfo DbInfo{ dbConnection = conn } file = withTransaction conn $
     execute conn "DELETE FROM localFiles WHERE file = ?" (Only file)

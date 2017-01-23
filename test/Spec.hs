@@ -1,5 +1,5 @@
 {-# Language OverloadedStrings #-}
-import Control.Exception.Safe
+import Control.Monad
 import Data.ByteArray.Encoding
 import System.Directory
 import System.Directory.Tree
@@ -7,7 +7,6 @@ import System.FilePath
 import System.IO
 import System.IO.Temp
 import System.Posix.Files
-import System.Posix.IO
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
@@ -15,7 +14,9 @@ import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Crypto
 import PrivateCloud.DirTree
+import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
+import PrivateCloud.Sync
 
 main :: IO ()
 main = defaultMain tests
@@ -25,10 +26,6 @@ tests = testGroup "PrivateCloud tests"
     [ testGroup "DirTree tests"
         [ testCase "makeTree" testMakeTree
         , testCase "unrollTreeFiles" testUnrollTreeFiles
-        , testCase "getChangedFiles detects move" testGetChangedFilesMove
-        , testCase "getChangedFiles detects size change" testGetChangedFilesResize
-        , testCase "getChangedFiles detects timestamp change" testGetChangedFilesTS
-        , testCase "getChangedFiles detects type change" testGetChangedFilesType
         ]
     , testGroup "Crypto tests"
         [ testCase "File HMAC correct" testFileHMAC
@@ -39,14 +36,17 @@ tests = testGroup "PrivateCloud tests"
         , testCase "Update works" testDbUpdate
         , testCase "Remove works" testDbDelete
         ]
+    , testGroup "Sync tests"
+        [ testCase "getLocalChanges" testGetLocalChanges
+        ]
     ]
 
-clearTree :: DirTree (Maybe FileInfo) -> DirTree (Maybe FileInfo)
-clearTree = fmap (fmap fixModTime)
+normalizeTree :: DirTree (Maybe LocalFileInfo) -> DirTree (Maybe LocalFileInfo)
+normalizeTree = fmap (fmap fixModTime)
     where
-    fixModTime f = f{fiModTime = 0}
+    fixModTime f = f{lfModTime = 42}
 
-sampleTree :: DirTree (Maybe FileInfo)
+sampleTree :: DirTree (Maybe LocalFileInfo)
 sampleTree = Dir { name = "root", contents =
     [ Dir { name = "a", contents =
         [ Dir { name = "b", contents =
@@ -54,7 +54,7 @@ sampleTree = Dir { name = "root", contents =
                 [ Dir { name = "d", contents = [] }
                 , File
                     { name = "foo"
-                    , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
+                    , file = Just LocalFileInfo { lfLength = 3, lfModTime = 42 }
                     }
                 , File { name = "pipe", file = Nothing }
                 ]}
@@ -62,7 +62,7 @@ sampleTree = Dir { name = "root", contents =
                 [ Dir { name = "f", contents =
                     [ File
                         { name = "foo"
-                        , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
+                        , file = Just LocalFileInfo { lfLength = 4, lfModTime = 18 }
                         }
                     ]}
                 ]}
@@ -87,7 +87,7 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = Just FileInfo { fiLength = 3, fiModTime = 0, fiHash = Nothing }
+                            , file = Just LocalFileInfo { lfLength = 3, lfModTime = 42 }
                             }
                         , File { name = "pipe", file = Nothing }
                         ]}
@@ -95,150 +95,29 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = Just FileInfo { fiLength = 4, fiModTime = 0, fiHash = Nothing }
+                                , file = Just LocalFileInfo { lfLength = 4, lfModTime = 42 }
                                 }
                             ]}
                         ]}
                     ]}
                 ]}
             ]}
-        (clearTree tree)
+        (normalizeTree tree)
 
 testUnrollTreeFiles :: Assertion
 testUnrollTreeFiles = do
     let files = unrollTreeFiles sampleTree
     assertEqual "Incorrect files extracted"
-        [ ("a/b/c/foo", FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing })
-        , ("a/b/e/f/foo", FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing })
+        [ ("a/b/c/foo", LocalFileInfo { lfLength = 3, lfModTime = 42 })
+        , ("a/b/e/f/foo", LocalFileInfo { lfLength = 4, lfModTime = 18 })
         ]
         files
-
-testGetChangedFilesMove :: Assertion
-testGetChangedFilesMove = do
-    let tree2 = Dir { name = "root", contents =
-            [ Dir { name = "a", contents =
-                [ Dir { name = "b", contents =
-                    [ Dir { name = "c", contents =
-                        [ Dir { name = "d", contents = [] }
-                        ]}
-                    , Dir { name = "e", contents =
-                        [ Dir { name = "f", contents =
-                            [ File
-                                { name = "foo"
-                                , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
-                                }
-                            ]}
-                        ]}
-                    , File
-                        { name = "foo"
-                        , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
-                        }
-                    , File { name = "pipe", file = Nothing }
-                    ]}
-                ]}
-            ]}
-    let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
-    assertEqual "Incorrect change detected"
-        [ ("a/b/c/foo" , Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }, Nothing)
-        , ("a/b/foo", Nothing, Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing })
-        ]
-        diff
-
-testGetChangedFilesResize :: Assertion
-testGetChangedFilesResize = do
-    let tree2 = Dir { name = "root", contents =
-            [ Dir { name = "a", contents =
-                [ Dir { name = "b", contents =
-                    [ Dir { name = "c", contents =
-                        [ Dir { name = "d", contents = [] }
-                        , File
-                            { name = "foo"
-                            , file = Just FileInfo { fiLength = 4, fiModTime = 42, fiHash = Nothing }
-                            }
-                        , File { name = "pipe", file = Nothing }
-                        ]}
-                    , Dir { name = "e", contents =
-                        [ Dir { name = "f", contents =
-                            [ File
-                                { name = "foo"
-                                , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
-                                }
-                            ]}
-                        ]}
-                    ]}
-                ]}
-            ]}
-    let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
-    assertEqual "Incorrect change detected"
-        [ ("a/b/c/foo" , Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }, Just FileInfo { fiLength = 4, fiModTime = 42, fiHash = Nothing }) ]
-        diff
-
-testGetChangedFilesTS :: Assertion
-testGetChangedFilesTS = do
-    let tree2 = Dir { name = "root", contents =
-            [ Dir { name = "a", contents =
-                [ Dir { name = "b", contents =
-                    [ Dir { name = "c", contents =
-                        [ Dir { name = "d", contents = [] }
-                        , File
-                            { name = "foo"
-                            , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
-                            }
-                        , File { name = "pipe", file = Nothing }
-                        ]}
-                    , Dir { name = "e", contents =
-                        [ Dir { name = "f", contents =
-                            [ File
-                                { name = "foo"
-                                , file = Just FileInfo { fiLength = 4, fiModTime = 19, fiHash = Nothing }
-                                }
-                            ]}
-                        ]}
-                    ]}
-                ]}
-            ]}
-    let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
-    assertEqual "Incorrect change detected"
-        [ ("a/b/e/f/foo", Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }, Just FileInfo { fiLength = 4, fiModTime = 19, fiHash = Nothing }) ]
-        diff
-
-testGetChangedFilesType :: Assertion
-testGetChangedFilesType = do
-    let tree2 = Dir { name = "root", contents =
-            [ Dir { name = "a", contents =
-                [ Dir { name = "b", contents =
-                    [ Dir { name = "c", contents =
-                        [ Dir { name = "d", contents = [] }
-                        , File
-                            { name = "foo"
-                            , file = Just FileInfo { fiLength = 3, fiModTime = 42, fiHash = Nothing }
-                            }
-                        , File
-                            { name = "pipe"
-                            , file = Just FileInfo { fiLength = 10, fiModTime = 10, fiHash = Nothing }}
-                        ]}
-                    , Dir { name = "e", contents =
-                        [ File
-                            { name = "f"
-                            , file = Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }
-                            }
-                        ]}
-                    ]}
-                ]}
-            ]}
-    let diff = getChangedFiles (unrollTreeFiles sampleTree) (unrollTreeFiles tree2)
-    assertEqual "Incorrect change detected"
-        [ ("a/b/c/pipe", Nothing, Just FileInfo { fiLength = 10, fiModTime = 10, fiHash = Nothing })
-        , ("a/b/e/f", Nothing, Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing })
-        , ("a/b/e/f/foo", Just FileInfo { fiLength = 4, fiModTime = 18, fiHash = Nothing }, Nothing)
-        ]
-        diff
 
 testFileHMAC :: Assertion
 testFileHMAC = withSystemTempFile "hmactest.dat" $ \filename h -> do
     BL.hPut h $ BL.take (1024 * 1024 * 3 + 150) $ BL.iterate (+ 1) 0
-    hFlush h
-    hmac <- bracket (openFd filename ReadOnly Nothing defaultFileFlags) closeFd getFileHash
+    hClose h
+    hmac <- getFileHash filename
     assertEqual "HMAC BASE64 mismatch" "q3jvejp7ArLvUO4aF+Q64ME04L7ORosEd4BiYmQwGDE=" hmac
     let Right decodedHMAC = convertFromBase Base64 hmac
     let printableHMAC = convertToBase Base16 $ (decodedHMAC :: BS.ByteString)
@@ -250,13 +129,18 @@ testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
-    withConnection filename $ \conn -> do
-        initDatabase conn
-        putFileInfo conn "foo" srchash srcsize
-    Just (hash, size) <- withConnection filename $ \conn -> do
-        getFileInfo conn "foo"
-    assertEqual "invalid hash read" srchash hash
-    assertEqual "invalid size read" srcsize size
+    let srcts = 9876
+    [(fname, info)] <- withDatabase filename $ \conn -> do
+        putFileInfo conn "foo" FileInfo
+            { fiHash = srchash
+            , fiLength = srcsize
+            , fiModTime = srcts
+            }
+        getFileList conn
+    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid hash read" srchash (fiHash info)
+    assertEqual "invalid size read" srcsize (fiLength info)
+    assertEqual "invalid modtime read" srcts (fiModTime info)
 
 testDbDoubleInit :: Assertion
 testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
@@ -264,14 +148,19 @@ testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
-    withConnection filename $ \conn -> do
-        initDatabase conn
-        putFileInfo conn "foo" srchash srcsize
-    Just (hash, size) <- withConnection filename $ \conn -> do
-        initDatabase conn
-        getFileInfo conn "foo"
-    assertEqual "invalid hash read" srchash hash
-    assertEqual "invalid size read" srcsize size
+    let srcts = 9876
+    withDatabase filename $ \conn ->
+        putFileInfo conn "foo" FileInfo
+            { fiHash = srchash
+            , fiLength = srcsize
+            , fiModTime = srcts
+            }
+    [(fname, info)] <- withDatabase filename $ \conn ->
+        getFileList conn
+    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid hash read" srchash (fiHash info)
+    assertEqual "invalid size read" srcsize (fiLength info)
+    assertEqual "invalid modtime read" srcts (fiModTime info)
 
 testDbUpdate :: Assertion
 testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
@@ -279,16 +168,26 @@ testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
+    let srcts = 9876
     let secondHash = "78901"
     let secondSize = 1024
-    withConnection filename $ \conn -> do
-        initDatabase conn
-        putFileInfo conn "foo" srchash srcsize
-        putFileInfo conn "foo" secondHash secondSize
-    Just (hash, size) <- withConnection filename $ \conn -> do
-        getFileInfo conn "foo"
-    assertEqual "invalid hash read" secondHash hash
-    assertEqual "invalid size read" secondSize size
+    let secondts = 5436
+    withDatabase filename $ \conn -> do
+        putFileInfo conn "foo" FileInfo
+            { fiHash = srchash
+            , fiLength = srcsize
+            , fiModTime = srcts
+            }
+        putFileInfo conn "foo" FileInfo
+            { fiHash = secondHash
+            , fiLength = secondSize
+            , fiModTime = secondts
+            }
+    [(fname, info)] <- withDatabase filename getFileList
+    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid hash read" secondHash (fiHash info)
+    assertEqual "invalid size read" secondSize (fiLength info)
+    assertEqual "invalid modtime read" secondts (fiModTime info)
 
 testDbDelete :: Assertion
 testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
@@ -296,18 +195,98 @@ testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
-    withConnection filename $ \conn -> do
-        initDatabase conn
-        v <- getFileInfo conn "foo"
-        assertEqual "unexpected data found" Nothing v
-        putFileInfo conn "foo" srchash srcsize
-    Just (hash, size) <- withConnection filename $ \conn -> do
-        v <- getFileInfo conn "foo"
+    let srcts = 9876
+    withDatabase filename $ \conn -> do
+        v <- getFileList conn
+        assertEqual "unexpected data found" [] v
+        putFileInfo conn "foo" FileInfo
+            { fiHash = srchash
+            , fiLength = srcsize
+            , fiModTime = srcts
+            }
+    [(fname, info)] <- withDatabase filename $ \conn -> do
+        v <- getFileList conn
         deleteFileInfo conn "foo"
         return v
-    assertEqual "invalid hash read" srchash hash
-    assertEqual "invalid size read" srcsize size
+    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid hash read" srchash (fiHash info)
+    assertEqual "invalid size read" srcsize (fiLength info)
+    assertEqual "invalid modtime read" srcts (fiModTime info)
 
-    v <- withConnection filename $ \conn ->
-        getFileInfo conn "foo"
-    assertEqual "data found after delete" Nothing v
+    v <- withDatabase filename getFileList
+    assertEqual "data found after delete" [] v
+
+testGetLocalChanges :: Assertion
+testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
+    createDirectoryIfMissing True (root </> "a" </> "b" </> "c" </> "d")
+    createDirectoryIfMissing True (root </> "a" </> "b" </> "e" </> "f")
+    createNamedPipe (root </> "a" </> "b" </> "c" </> "pipe") ownerReadMode
+    writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo"
+    writeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo") "barr"
+
+    let getChanges' func = do
+            localFiles <- map func . unrollTreeFiles . normalizeTree <$> makeTree root
+            withDatabase (root </> dbName) $ \conn -> do
+                dbFiles <- getFileList conn
+                getLocalChanges root localFiles dbFiles
+
+    let getChanges = getChanges' id
+
+    let updateDb changes =
+            withDatabase (root </> dbName) $ \conn ->
+                forM_ changes $ \(f, i) -> case i of
+                    Just v -> putFileInfo conn f v
+                    Nothing -> deleteFileInfo conn f
+
+    let check msg golden = do
+            diff <- getChanges
+            assertEqual msg golden diff
+            updateDb diff
+
+    check "incorrect change list on initial add" 
+        [ ( "a/b/c/foo"
+          , Just FileInfo
+            { fiHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
+            , fiLength = 3
+            , fiModTime = 42
+            }
+          )
+        , ( "a/b/e/f/foo"
+          , Just FileInfo
+            { fiHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , fiLength = 4
+            , fiModTime = 42
+            }
+          )
+        ]
+
+    writeFile (root </> "a" </> "b" </> "c" </> "foo") "fooo"
+    check "can't detect file write"
+        [ ( "a/b/c/foo"
+          , Just FileInfo
+            { fiHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            , fiLength = 4
+            , fiModTime = 42
+            }
+          )
+        ]
+
+    writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo1"
+    diff3 <- getChanges' $ \(f, i) ->
+        if f == "a" </> "b" </> "c" </> "foo"
+            then (f, i { lfModTime = 1 })
+            else (f, i)
+    assertEqual "can't detect file write without len change"
+        [ ( "a/b/c/foo"
+          , Just FileInfo
+            { fiHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , fiLength = 4
+            , fiModTime = 1
+            }
+          )
+        ]
+        diff3
+    updateDb diff3
+
+    removeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo")
+    check "can't detect file removal" [ ("a/b/e/f/foo", Nothing) ]

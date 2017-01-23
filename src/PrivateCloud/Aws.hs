@@ -4,7 +4,6 @@ module PrivateCloud.Aws where
 import Aws.Aws
 import Aws.Core
 import Aws.SimpleDb
-import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.Trans.Resource
 import Data.Function
@@ -14,15 +13,11 @@ import Data.Monoid
 import Foreign.C.Types
 import Network.HTTP.Client (Manager, newManager)
 import Network.HTTP.Client.TLS
-import System.FilePath
-import System.Posix.Files
-import System.Posix.IO
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Read as T
 
-import PrivateCloud.Crypto
-import PrivateCloud.DirTree
+import PrivateCloud.FileInfo
 
 data CloudInfo = CloudInfo
     { ciConfig :: Configuration
@@ -46,7 +41,7 @@ uploadFileInfo CloudInfo{..} file FileInfo{..} = do
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
     let command = putAttributes (T.pack file)
-            [ replaceAttribute "hash" (maybe T.empty T.decodeUtf8 $ fiHash) -- XXX remove attr
+            [ replaceAttribute "hash" (T.decodeUtf8 $ fiHash)
             , replaceAttribute "size" (T.pack $ show fiLength)
             , replaceAttribute "mtime" (T.pack $ show fiModTime)
             ]
@@ -82,7 +77,7 @@ getServerFiles CloudInfo{..} = do
                     Right (v, "") -> Just v
                     _ -> Nothing
     conv Item{..} = do
-        let filehash = attributeData <$> find (\a -> attributeName a == "hash") itemData
+        filehash <- attributeData <$> find (\a -> attributeName a == "hash") itemData
         size <- readDec =<< attributeData <$> find (\a -> attributeName a == "size") itemData
         mtime <- readDec =<< attributeData <$> find (\a -> attributeName a == "mtime") itemData
         return
@@ -90,49 +85,6 @@ getServerFiles CloudInfo{..} = do
             , FileInfo
                 { fiLength = size
                 , fiModTime = CTime mtime
-                , fiHash = T.encodeUtf8 <$> filehash
+                , fiHash = T.encodeUtf8 filehash
                 }
             )
-
-updateInfo :: CloudInfo -> FilePath -> FileChangeInfo -> IO ()
-updateInfo _ _ (_, Nothing, Nothing) = error "Internal error: state transition from Nothing to Nothing"
-updateInfo config _ (file, Just _, Nothing) = do
-    putStrLn $ "deleting " ++  file
-    deleteFileInfo config file
-updateInfo config root (file, Nothing, Just _) = do
-    putStrLn $ "adding " ++  file
-    bracket
-        (openFd (root </> file) ReadOnly Nothing defaultFileFlags)
-        closeFd
-        $ \fd -> do
-            status <- getFdStatus fd
-            when (isRegularFile status) $ do
-                let size = fileSize status
-                let mtime = modificationTime status
-                fileHash <- getFileHash fd
-                -- TODO upload file here
-                uploadFileInfo config file FileInfo
-                    { fiLength = size
-                    , fiModTime = mtime
-                    , fiHash = Just fileHash
-                    }
-                print fileHash
-updateInfo config root (file, Just serverData, Just _) = do
-    putStrLn $ "updating " ++  file
-    bracket
-        (openFd (root </> file) ReadOnly Nothing defaultFileFlags)
-        closeFd
-        $ \fd -> do
-            status <- getFdStatus fd
-            when (isRegularFile status) $ do
-                let size = fileSize status
-                let mtime = modificationTime status
-                fileHash <- Just <$> getFileHash fd
-                when (fiHash serverData /= fileHash) $ do
-                    -- TODO upload file here
-                    uploadFileInfo config file FileInfo
-                        { fiLength = size
-                        , fiModTime = mtime
-                        , fiHash = fileHash
-                        }
-                    print fileHash
