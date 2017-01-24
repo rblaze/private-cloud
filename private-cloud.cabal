@@ -28,6 +28,8 @@ library
                      , async
                      , aws
                      , bytestring
+                     , conduit
+                     , conduit-extra
                      , cryptonite
                      , directory-tree
                      , filepath

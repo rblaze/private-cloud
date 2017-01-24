@@ -5,6 +5,9 @@ import Aws.Aws
 import Aws.Core
 import Aws.S3
 import Control.Monad
+import Control.Monad.Trans.Resource
+import Data.Conduit
+import Data.Conduit.Binary
 import Network.HTTP.Client
 import System.Log.Logger
 
@@ -29,3 +32,16 @@ deleteFile CloudInfo{..} filename = do
     let command = DeleteObject { doObjectName = T.pack filename, doBucket = ciBucket }
     infoM s3LoggerName $ "#S3DELETE #file " ++ filename
     void $ memoryAws ciConfig defServiceConfig ciManager command
+
+downloadFile :: CloudInfo -> FilePath -> IO BL.ByteString
+downloadFile CloudInfo{..} filename = do
+    let command = getObject ciBucket (T.pack filename)
+    infoM s3LoggerName $ "#S3DOWNLOAD #file " ++ filename
+    body <- runResourceT $ do
+        GetObjectResponse { gorResponse = resp } 
+            <- pureAws ciConfig defServiceConfig ciManager command
+        -- XXX replace with write to temp file, then move to original.
+        -- XXX this will prevent partial downloads and memory overuse.
+        responseBody resp $$+- sinkLbs
+    infoM s3LoggerName $ "#S3DOWNLOADED #file " ++ filename
+    return body
