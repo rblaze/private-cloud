@@ -16,6 +16,8 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     PrivateCloud.Aws
+                       PrivateCloud.Aws.S3
+                       PrivateCloud.Aws.SimpleDb
                        PrivateCloud.Crypto
                        PrivateCloud.DirTree
                        PrivateCloud.FileInfo
@@ -45,6 +47,7 @@ executable private-cloud-exe
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -W -Wall
   build-depends:       base
+                     , bytestring
                      , cmdargs
                      , directory
                      , filepath

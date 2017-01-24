@@ -4,7 +4,11 @@ import Control.Concurrent
 import Control.Monad
 import System.FilePath
 import System.Log.Logger
+import qualified Data.ByteString.Lazy as BL
 
+import PrivateCloud.Aws
+import PrivateCloud.Aws.S3
+import PrivateCloud.Aws.SimpleDb
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
@@ -18,6 +22,7 @@ mainLoggerName = "PrivateCloud"
 main :: IO ()
 main = do
     options <- getOptions
+    config <- defaultCloudInfo
 
     updateGlobalLogger mainLoggerName (setLevel (loglevel options))
 
@@ -32,8 +37,15 @@ main = do
                 diff <- getLocalChanges rootDir localFiles dbFiles
 
                 forM_ diff $ \(f, i) -> case i of
-                    Just v -> putFileInfo conn f v
-                    Nothing -> deleteFileInfo conn f
+                    Just v -> do
+                        body <- BL.readFile (rootDir </> f)
+                        uploadFile config f body
+                        uploadFileInfo config f v
+                        putFileInfo conn f v
+                    Nothing -> do
+                        deleteFile config f
+                        removeFileInfo config f
+                        deleteFileInfo conn f
 
                 threadDelay 10000000
                 loop
