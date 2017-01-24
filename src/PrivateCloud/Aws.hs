@@ -76,10 +76,11 @@ getServerFiles CloudInfo{..} = do
     readDec t = case T.decimal t of
                     Right (v, "") -> Just v
                     _ -> Nothing
+    getAttr name = fmap attributeData . find (\a -> attributeName a == name)
     conv Item{..} = do
-        filehash <- attributeData <$> find (\a -> attributeName a == "hash") itemData
-        size <- readDec =<< attributeData <$> find (\a -> attributeName a == "size") itemData
-        mtime <- readDec =<< attributeData <$> find (\a -> attributeName a == "mtime") itemData
+        filehash <- getAttr "hash" itemData
+        size <- readDec =<< getAttr "size" itemData
+        mtime <- readDec =<< getAttr "mtime" itemData
         return
             ( T.unpack itemName
             , FileInfo
