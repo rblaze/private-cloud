@@ -2,23 +2,34 @@ module Main where
 
 import Control.Concurrent
 import Control.Monad
-import System.Environment
 import System.FilePath
+import System.Log.Logger
 
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
 import PrivateCloud.Sync
 
+import Options
+
+mainLoggerName :: String
+mainLoggerName = "PrivateCloud"
+
 main :: IO ()
 main = do
-    [root] <- getArgs
-    withDatabase (root </> dbName) $ \conn -> do
+    options <- getOptions
+
+    updateGlobalLogger mainLoggerName (setLevel (loglevel options))
+
+    let rootDir = root options
+    noticeM mainLoggerName $ "#START #root " ++ rootDir
+
+    withDatabase (rootDir </> dbName) $ \conn -> do
+        noticeM mainLoggerName "#DBOPEN"
         let loop = do
-                localFiles <- unrollTreeFiles <$> makeTree root
+                localFiles <- unrollTreeFiles <$> makeTree rootDir
                 dbFiles <- getFileList conn
-                diff <- getLocalChanges root localFiles dbFiles
-                print diff
+                diff <- getLocalChanges rootDir localFiles dbFiles
 
                 forM_ diff $ \(f, i) -> case i of
                     Just v -> putFileInfo conn f v

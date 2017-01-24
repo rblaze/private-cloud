@@ -29,6 +29,7 @@ library
                      , cryptonite
                      , directory-tree
                      , filepath
+                     , hslogger
                      , http-client
                      , http-client-tls
                      , memory
@@ -44,9 +45,14 @@ executable private-cloud-exe
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -W -Wall
   build-depends:       base
+                     , cmdargs
+                     , directory
                      , filepath
+                     , hslogger
                      , private-cloud
   default-language:    Haskell2010
+  other-modules:       Options
+                       Paths_private_cloud
 
 test-suite private-cloud-test
   type:                exitcode-stdio-1.0
