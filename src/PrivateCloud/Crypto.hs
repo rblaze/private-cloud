@@ -1,4 +1,3 @@
-{-# Language BangPatterns #-}
 module PrivateCloud.Crypto where
 
 import Data.ByteArray.Encoding

@@ -1,4 +1,4 @@
-{-# Language BangPatterns, OverloadedStrings, RecordWildCards #-}
+{-# Language OverloadedStrings, RecordWildCards #-}
 module PrivateCloud.Aws.SimpleDb where
 
 import Aws.Aws
@@ -24,7 +24,7 @@ uploadFileInfo CloudInfo{..} file FileInfo{..} = do
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
     let command = putAttributes (T.pack file)
-            [ replaceAttribute "hash" (T.decodeUtf8 $ fiHash)
+            [ replaceAttribute "hash" (T.decodeUtf8 fiHash)
             , replaceAttribute "size" (T.pack $ show fiLength)
             , replaceAttribute "mtime" (T.pack $ show fiModTime)
             ]

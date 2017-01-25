@@ -121,7 +121,7 @@ testFileHMAC = withSystemTempFile "hmactest.dat" $ \filename h -> do
     hmac <- getFileHash filename
     assertEqual "HMAC BASE64 mismatch" "q3jvejp7ArLvUO4aF+Q64ME04L7ORosEd4BiYmQwGDE=" hmac
     let Right decodedHMAC = convertFromBase Base64 hmac
-    let printableHMAC = convertToBase Base16 $ (decodedHMAC :: BS.ByteString)
+    let printableHMAC = convertToBase Base16 (decodedHMAC :: BS.ByteString)
     assertEqual "HMAC mismatch" "ab78ef7a3a7b02b2ef50ee1a17e43ae0c134e0bece468b047780626264301831" (printableHMAC :: BS.ByteString)
 
 testDbAddRead :: Assertion
@@ -247,14 +247,14 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
 
     check "incorrect change list on initial add" 
         [ ( "a/b/c/foo"
-          , ContentChange $ FileInfo
+          , ContentChange FileInfo
             { fiHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , fiLength = 3
             , fiModTime = 42
             }
           )
         , ( "a/b/e/f/foo"
-          , ContentChange $ FileInfo
+          , ContentChange FileInfo
             { fiHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , fiLength = 4
             , fiModTime = 42
@@ -265,7 +265,7 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "fooo"
     check "can't detect file write"
         [ ( "a/b/c/foo"
-          , ContentChange $ FileInfo
+          , ContentChange FileInfo
             { fiHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , fiLength = 4
             , fiModTime = 42
@@ -280,7 +280,7 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             else (f, i)
     assertEqual "can't detect file write without len change"
         [ ( "a/b/c/foo"
-          , ContentChange $ FileInfo
+          , ContentChange FileInfo
             { fiHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , fiLength = 4
             , fiModTime = 1
@@ -292,7 +292,7 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
 
     check "can't detect timestamp only update"
         [ ( "a/b/c/foo"
-          , MetadataOnlyChange $ FileInfo
+          , MetadataOnlyChange FileInfo
             { fiHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , fiLength = 4
             , fiModTime = 42
@@ -359,7 +359,7 @@ testGetServerChanges = do
                 , fiModTime = 1
                 })
             ]
-            [ ("a/b/bonfire", ContentChange $ FileInfo
+            [ ("a/b/bonfire", ContentChange FileInfo
                 { fiHash = "hash3"
                 , fiLength = 20
                 , fiModTime = 100
@@ -383,7 +383,7 @@ testGetServerChanges = do
                 , fiModTime = 101
                 })
             ]
-            [ ("a/b/delta", ContentChange $ FileInfo
+            [ ("a/b/delta", ContentChange FileInfo
                 { fiHash = "hash14"
                 , fiLength = 20
                 , fiModTime = 101
@@ -402,7 +402,7 @@ testGetServerChanges = do
                 , fiModTime = 17
                 })
             ]
-            [ ("a/b/c/foo", ContentChange $ FileInfo
+            [ ("a/b/c/foo", ContentChange FileInfo
                 { fiHash = "hash10"
                 , fiLength = 10
                 , fiModTime = 17
@@ -421,7 +421,7 @@ testGetServerChanges = do
                 , fiModTime = 11
                 })
             ]
-            [ ("a/b/c/foo", MetadataOnlyChange $ FileInfo
+            [ ("a/b/c/foo", MetadataOnlyChange FileInfo
                 { fiHash = "hash0"
                 , fiLength = 10
                 , fiModTime = 11
