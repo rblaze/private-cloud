@@ -37,12 +37,15 @@ main = do
                 diff <- getLocalChanges rootDir localFiles dbFiles
 
                 forM_ diff $ \(f, i) -> case i of
-                    Just v -> do
+                    ContentChange info -> do
                         body <- BL.readFile (rootDir </> f)
                         uploadFile config f body
-                        uploadFileInfo config f v
-                        putFileInfo conn f v
-                    Nothing -> do
+                        uploadFileInfo config f info
+                        putFileInfo conn f info
+                    MetadataOnlyChange info -> do
+                        uploadFileInfo config f info
+                        putFileInfo conn f info
+                    Deleted -> do
                         deleteFile config f
                         removeFileInfo config f
                         deleteFileInfo conn f

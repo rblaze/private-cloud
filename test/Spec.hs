@@ -38,6 +38,7 @@ tests = testGroup "PrivateCloud tests"
         ]
     , testGroup "Sync tests"
         [ testCase "getLocalChanges" testGetLocalChanges
+        , testCase "getServerChanges" testGetServerChanges
         ]
     ]
 
@@ -235,8 +236,9 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
     let updateDb changes =
             withDatabase (root </> dbName) $ \conn ->
                 forM_ changes $ \(f, i) -> case i of
-                    Just v -> putFileInfo conn f v
-                    Nothing -> deleteFileInfo conn f
+                    ContentChange info -> putFileInfo conn f info
+                    MetadataOnlyChange info -> putFileInfo conn f info
+                    Deleted -> deleteFileInfo conn f
 
     let check msg golden = do
             diff <- getChanges
@@ -245,14 +247,14 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
 
     check "incorrect change list on initial add" 
         [ ( "a/b/c/foo"
-          , Just FileInfo
+          , ContentChange $ FileInfo
             { fiHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , fiLength = 3
             , fiModTime = 42
             }
           )
         , ( "a/b/e/f/foo"
-          , Just FileInfo
+          , ContentChange $ FileInfo
             { fiHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , fiLength = 4
             , fiModTime = 42
@@ -263,7 +265,7 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "fooo"
     check "can't detect file write"
         [ ( "a/b/c/foo"
-          , Just FileInfo
+          , ContentChange $ FileInfo
             { fiHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , fiLength = 4
             , fiModTime = 42
@@ -273,12 +275,12 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
 
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo1"
     diff3 <- getChanges' $ \(f, i) ->
-        if f == "a" </> "b" </> "c" </> "foo"
+        if f == "a/b/c/foo"
             then (f, i { lfModTime = 1 })
             else (f, i)
     assertEqual "can't detect file write without len change"
         [ ( "a/b/c/foo"
-          , Just FileInfo
+          , ContentChange $ FileInfo
             { fiHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , fiLength = 4
             , fiModTime = 1
@@ -288,5 +290,140 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
         diff3
     updateDb diff3
 
+    check "can't detect timestamp only update"
+        [ ( "a/b/c/foo"
+          , MetadataOnlyChange $ FileInfo
+            { fiHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , fiLength = 4
+            , fiModTime = 42
+            }
+          )
+        ]
+
     removeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo")
-    check "can't detect file removal" [ ("a/b/e/f/foo", Nothing) ]
+    check "can't detect file removal" [ ("a/b/e/f/foo", Deleted) ]
+
+testGetServerChanges :: Assertion
+testGetServerChanges = do
+    let dbFiles =
+            [ ("a/b/bar", FileInfo
+                { fiHash = "hash1"
+                , fiLength = 50
+                , fiModTime = 10
+                })
+            , ("a/b/c/foo", FileInfo
+                { fiHash = "hash0"
+                , fiLength = 10
+                , fiModTime = 1
+                })
+            ]
+
+    let check msg serverFiles golden = do
+            diff <- getServerChanges dbFiles serverFiles
+            assertEqual msg golden diff
+
+    check "invalid list for no changes" dbFiles []
+
+    check "invalid list for server delete" 
+            [ ("a/b/c/foo", FileInfo
+                { fiHash = "hash0"
+                , fiLength = 10
+                , fiModTime = 1
+                })
+            ]
+            [ ("a/b/bar", Deleted) ]
+
+    check "invalid list for server tail delete" 
+            [ ("a/b/bar", FileInfo
+                { fiHash = "hash1"
+                , fiLength = 50
+                , fiModTime = 10
+                })
+            ]
+            [ ("a/b/c/foo", Deleted) ]
+
+    check "invalid list for server add" 
+            [ ("a/b/bar", FileInfo
+                { fiHash = "hash1"
+                , fiLength = 50
+                , fiModTime = 10
+                })
+            , ("a/b/bonfire", FileInfo
+                { fiHash = "hash3"
+                , fiLength = 20
+                , fiModTime = 100
+                })
+            , ("a/b/c/foo", FileInfo
+                { fiHash = "hash0"
+                , fiLength = 10
+                , fiModTime = 1
+                })
+            ]
+            [ ("a/b/bonfire", ContentChange $ FileInfo
+                { fiHash = "hash3"
+                , fiLength = 20
+                , fiModTime = 100
+                })
+            ]
+
+    check "invalid list for server tail add" 
+            [ ("a/b/bar", FileInfo
+                { fiHash = "hash1"
+                , fiLength = 50
+                , fiModTime = 10
+                })
+            , ("a/b/c/foo", FileInfo
+                { fiHash = "hash0"
+                , fiLength = 10
+                , fiModTime = 1
+                })
+            , ("a/b/delta", FileInfo
+                { fiHash = "hash14"
+                , fiLength = 20
+                , fiModTime = 101
+                })
+            ]
+            [ ("a/b/delta", ContentChange $ FileInfo
+                { fiHash = "hash14"
+                , fiLength = 20
+                , fiModTime = 101
+                })
+            ]
+
+    check "invalid list for server edit" 
+            [ ("a/b/bar", FileInfo
+                { fiHash = "hash1"
+                , fiLength = 50
+                , fiModTime = 10
+                })
+            , ("a/b/c/foo", FileInfo
+                { fiHash = "hash10"
+                , fiLength = 10
+                , fiModTime = 17
+                })
+            ]
+            [ ("a/b/c/foo", ContentChange $ FileInfo
+                { fiHash = "hash10"
+                , fiLength = 10
+                , fiModTime = 17
+                })
+            ]
+
+    check "invalid list for server metadata change" 
+            [ ("a/b/bar", FileInfo
+                { fiHash = "hash1"
+                , fiLength = 50
+                , fiModTime = 10
+                })
+            , ("a/b/c/foo", FileInfo
+                { fiHash = "hash0"
+                , fiLength = 10
+                , fiModTime = 11
+                })
+            ]
+            [ ("a/b/c/foo", MetadataOnlyChange $ FileInfo
+                { fiHash = "hash0"
+                , fiLength = 10
+                , fiModTime = 11
+                })
+            ]

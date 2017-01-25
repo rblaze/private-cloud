@@ -4,74 +4,150 @@ module PrivateCloud.Sync where
 import Control.Monad
 import System.FilePath
 import System.Log.Logger
+import System.Posix.Types
 
 import PrivateCloud.Crypto
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 
+data FileUpdate
+    = ContentChange FileInfo
+    | MetadataOnlyChange FileInfo
+    | Deleted
+    deriving (Show, Eq)
+
 syncLoggerName :: String
 syncLoggerName = "PrivateCloud.Sync"
 
-logNew :: (Show a, Integral a) => FilePath -> a -> IO ()
-logNew file size = do
+logLocalNew :: (Show a, Integral a) => FilePath -> a -> IO ()
+logLocalNew file size = do
     let _ = (fromIntegral size) :: Int      -- suppress "unused constraint" warning
-    infoM syncLoggerName $ "#NEW #file " ++ file ++ " #size " ++ show size
+    infoM syncLoggerName $ "#NEW_LOCAL #file " ++ file ++ " #size " ++ show size
 
-logDelete :: FilePath -> IO ()
-logDelete file = infoM syncLoggerName $ "#DEL #file " ++ file
+logLocalDelete :: FilePath -> IO ()
+logLocalDelete file = infoM syncLoggerName $ "#DEL_LOCAL #file " ++ file
 
-logChange :: (Show a, Show b, Integral a, Integral b) => FilePath -> a -> b -> IO ()
-logChange file oldSize newSize = do
+logLocalChange :: (Show a, Show b, Integral a, Integral b) => FilePath -> a -> b -> IO ()
+logLocalChange file oldSize newSize = do
     let _ = (fromIntegral oldSize) :: Int
     let _ = (fromIntegral newSize) :: Int
-    infoM syncLoggerName $ "#UPD #file " ++ file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
+    infoM syncLoggerName $ "#UPD_LOCAL #file " ++ file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
-getLocalChanges :: FilePath -> FileList -> [(FilePath, FileInfo)] -> IO [(FilePath, Maybe FileInfo)]
+logLocalMetadataChange :: FilePath -> EpochTime -> EpochTime -> IO ()
+logLocalMetadataChange file oldTs newTs = do
+    infoM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ file
+        ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
+
+
+logServerNew :: (Show a, Integral a) => FilePath -> a -> IO ()
+logServerNew file size = do
+    let _ = (fromIntegral size) :: Int      -- suppress "unused constraint" warning
+    infoM syncLoggerName $ "#NEW_SERVER #file " ++ file ++ " #size " ++ show size
+
+logServerDelete :: FilePath -> IO ()
+logServerDelete file = infoM syncLoggerName $ "#DEL_SERVER #file " ++ file
+
+logServerChange :: FilePath -> FileInfo -> FileInfo -> IO ()
+logServerChange file oldInfo newInfo = do
+    infoM syncLoggerName $ "#UPD_SERVER #file " ++ file
+        ++ " #size " ++ show (fiLength newInfo)
+        ++ " #oldsize " ++  show (fiLength oldInfo)
+
+logServerMetadataChange :: FilePath -> EpochTime -> EpochTime -> IO ()
+logServerMetadataChange file oldTs newTs = do
+    infoM syncLoggerName $ "#UPDMETA_SERVER #file " ++ file
+        ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
+
+getLocalChanges :: FilePath -> FileList -> [(FilePath, FileInfo)] -> IO [(FilePath, FileUpdate)]
 getLocalChanges _ [] [] = return []
 -- handle deleted files
-getLocalChanges _ [] srvs = forM srvs $ \(filename, _) -> do
-    logDelete filename
-    return (filename, Nothing)
+getLocalChanges _ [] dbs = forM dbs $ \(filename, _) -> do
+    logLocalDelete filename
+    return (filename, Deleted)
 -- handle new files
 getLocalChanges root locals [] = forM locals $ \(filename, LocalFileInfo{..}) -> do
     hash <- getFileHash (root </> filename)
-    logNew filename lfLength
-    return (filename, Just FileInfo
+    logLocalNew filename lfLength
+    return (filename, ContentChange $ FileInfo
         { fiHash = hash
         , fiLength = fromIntegral lfLength
         , fiModTime = lfModTime
         })
-getLocalChanges root locals@((lname, linfo) : ls) srvs@((sname, sinfo) : ss) =
-    case compare lname sname of
+getLocalChanges root locals@((lname, linfo) : ls) dbs@((dbname, dbinfo) : ds) =
+    case compare lname dbname of
         LT -> do    -- new file added
-                logNew lname (lfLength linfo)
+                logLocalNew lname (lfLength linfo)
                 hash <- getFileHash (root </> lname)
-                rest <- getLocalChanges root ls srvs
+                rest <- getLocalChanges root ls dbs
                 let upd = FileInfo
                         { fiHash = hash
                         , fiLength = fromIntegral (lfLength linfo)
                         , fiModTime = lfModTime linfo
                         }
-                return $ (lname, Just upd) : rest
+                return $ (lname, ContentChange upd) : rest
         GT -> do    -- file deleted
-                logDelete sname
-                rest <- getLocalChanges root locals ss
-                return $ (sname, Nothing) : rest
+                logLocalDelete dbname
+                rest <- getLocalChanges root locals ds
+                return $ (dbname, Deleted) : rest
         EQ -> do
                 debugM syncLoggerName $ "#CHK #file " ++ lname
-                if lfLength linfo == fromIntegral (fiLength sinfo)
-                    && lfModTime linfo == fiModTime sinfo
-                then getLocalChanges root ls ss     -- no changes
+                if lfLength linfo == fromIntegral (fiLength dbinfo)
+                    && lfModTime linfo == fiModTime dbinfo
+                then getLocalChanges root ls ds     -- no changes
                 else do
                     hash <- getFileHash (root </> lname)
-                    rest <- getLocalChanges root ls ss
-                    let upd = FileInfo
-                            { fiHash = hash
-                            , fiLength = fromIntegral (lfLength linfo)
-                            , fiModTime = lfModTime linfo
-                            }
-                    if hash == fiHash sinfo
-                        then return rest
-                        else do
-                            logChange lname (fiLength sinfo) (lfLength linfo)
-                            return $ (lname, Just upd) : rest
+                    upd <- if hash == fiHash dbinfo
+                            then do
+                                logLocalMetadataChange lname (fiModTime dbinfo) (lfModTime linfo)
+                                return $ MetadataOnlyChange $ dbinfo
+                                    { fiModTime = lfModTime linfo
+                                    }
+                            else do
+                                logLocalChange lname (fiLength dbinfo) (lfLength linfo)
+                                return $ ContentChange $ FileInfo
+                                    { fiHash = hash
+                                    , fiLength = fromIntegral (lfLength linfo)
+                                    , fiModTime = lfModTime linfo
+                                    }
+                    rest <- getLocalChanges root ls ds
+                    return $ (lname, upd) : rest
+
+getServerChanges :: [(FilePath, FileInfo)] -> [(FilePath, FileInfo)] -> IO [(FilePath, FileUpdate)]
+getServerChanges [] [] = return []
+-- handle new files
+getServerChanges [] srvs = forM srvs $ \(filename, info) -> do
+    logServerNew filename (fiLength info)
+    return (filename, ContentChange info)
+-- handle deleted files
+getServerChanges dbs [] = forM dbs $ \(filename, _) -> do
+    logServerDelete filename
+    return (filename, Deleted)
+getServerChanges dbs@((dbname, dbinfo) : ds) srvs@((sname, sinfo) : ss) =
+    case compare dbname sname of
+        GT -> do    -- new file added
+                logServerNew sname (fiLength sinfo)
+                rest <- getServerChanges dbs ss
+                return $ (sname, ContentChange sinfo) : rest
+        LT -> do    -- file deleted
+                logServerDelete dbname
+                rest <- getServerChanges ds srvs
+                return $ (dbname, Deleted) : rest
+        EQ -> do
+                debugM syncLoggerName $ "#CHKSRV #file " ++ dbname
+                if dbinfo == sinfo
+                    then getServerChanges ds ss     -- no changes
+                    else do
+                        upd <- if fiHash dbinfo == fiHash sinfo
+                            then do
+                                when (fiLength dbinfo /= fiLength sinfo)
+                                    $ criticalM syncLoggerName
+                                    $ "file size changed but hash remains the same: "
+                                        ++ dbname ++ " " ++ show dbinfo
+                                        ++ " " ++ show sinfo
+                                logServerMetadataChange dbname (fiModTime dbinfo) (fiModTime sinfo)
+                                return $ MetadataOnlyChange sinfo
+                            else do
+                                logServerChange dbname dbinfo sinfo
+                                return $ ContentChange sinfo
+                        rest <- getServerChanges ds ss
+                        return $ (sname, upd) : rest
