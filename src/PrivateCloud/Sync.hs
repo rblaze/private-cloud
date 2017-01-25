@@ -22,40 +22,40 @@ syncLoggerName = "PrivateCloud.Sync"
 logLocalNew :: (Show a, Integral a) => FilePath -> a -> IO ()
 logLocalNew file size = do
     let _ = (fromIntegral size) :: Int      -- suppress "unused constraint" warning
-    infoM syncLoggerName $ "#NEW_LOCAL #file " ++ file ++ " #size " ++ show size
+    noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ file ++ " #size " ++ show size
 
 logLocalDelete :: FilePath -> IO ()
-logLocalDelete file = infoM syncLoggerName $ "#DEL_LOCAL #file " ++ file
+logLocalDelete file = noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ file
 
 logLocalChange :: (Show a, Show b, Integral a, Integral b) => FilePath -> a -> b -> IO ()
 logLocalChange file oldSize newSize = do
     let _ = (fromIntegral oldSize) :: Int
     let _ = (fromIntegral newSize) :: Int
-    infoM syncLoggerName $ "#UPD_LOCAL #file " ++ file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
+    noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
 logLocalMetadataChange :: FilePath -> EpochTime -> EpochTime -> IO ()
 logLocalMetadataChange file oldTs newTs = do
-    infoM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ file
+    noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
 
 logServerNew :: (Show a, Integral a) => FilePath -> a -> IO ()
 logServerNew file size = do
     let _ = (fromIntegral size) :: Int      -- suppress "unused constraint" warning
-    infoM syncLoggerName $ "#NEW_SERVER #file " ++ file ++ " #size " ++ show size
+    noticeM syncLoggerName $ "#NEW_SERVER #file " ++ file ++ " #size " ++ show size
 
 logServerDelete :: FilePath -> IO ()
-logServerDelete file = infoM syncLoggerName $ "#DEL_SERVER #file " ++ file
+logServerDelete file = noticeM syncLoggerName $ "#DEL_SERVER #file " ++ file
 
 logServerChange :: FilePath -> FileInfo -> FileInfo -> IO ()
 logServerChange file oldInfo newInfo = do
-    infoM syncLoggerName $ "#UPD_SERVER #file " ++ file
+    noticeM syncLoggerName $ "#UPD_SERVER #file " ++ file
         ++ " #size " ++ show (fiLength newInfo)
         ++ " #oldsize " ++  show (fiLength oldInfo)
 
 logServerMetadataChange :: FilePath -> EpochTime -> EpochTime -> IO ()
 logServerMetadataChange file oldTs newTs = do
-    infoM syncLoggerName $ "#UPDMETA_SERVER #file " ++ file
+    noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
 getLocalChanges :: FilePath -> FileList -> [(FilePath, FileInfo)] -> IO [(FilePath, FileUpdate)]
@@ -90,7 +90,7 @@ getLocalChanges root locals@((lname, linfo) : ls) dbs@((dbname, dbinfo) : ds) =
                 rest <- getLocalChanges root locals ds
                 return $ (dbname, Deleted) : rest
         EQ -> do
-                debugM syncLoggerName $ "#CHK #file " ++ lname
+                infoM syncLoggerName $ "#CHK #file " ++ lname
                 if lfLength linfo == fromIntegral (fiLength dbinfo)
                     && lfModTime linfo == fiModTime dbinfo
                 then getLocalChanges root ls ds     -- no changes
@@ -133,7 +133,7 @@ getServerChanges dbs@((dbname, dbinfo) : ds) srvs@((sname, sinfo) : ss) =
                 rest <- getServerChanges ds srvs
                 return $ (dbname, Deleted) : rest
         EQ -> do
-                debugM syncLoggerName $ "#CHKSRV #file " ++ dbname
+                infoM syncLoggerName $ "#CHKSRV #file " ++ dbname
                 if dbinfo == sinfo
                     then getServerChanges ds ss     -- no changes
                     else do

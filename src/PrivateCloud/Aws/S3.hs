@@ -23,20 +23,20 @@ uploadFile :: CloudInfo -> FilePath -> BL.ByteString -> IO ()
 uploadFile CloudInfo{..} filename body = do
     -- XXX replace with multipart upload, to allow streaming encryption
     let command = putObject ciBucket (T.pack filename) (RequestBodyLBS body)
-    infoM s3LoggerName $ "#S3UPLOAD #file " ++ filename
+    noticeM s3LoggerName $ "#S3UPLOAD #file " ++ filename
     void $ memoryAws ciConfig defServiceConfig ciManager command
     infoM s3LoggerName $ "#S3UPLOADED #file " ++ filename
 
 deleteFile :: CloudInfo -> FilePath -> IO ()
 deleteFile CloudInfo{..} filename = do
     let command = DeleteObject { doObjectName = T.pack filename, doBucket = ciBucket }
-    infoM s3LoggerName $ "#S3DELETE #file " ++ filename
+    noticeM s3LoggerName $ "#S3DELETE #file " ++ filename
     void $ memoryAws ciConfig defServiceConfig ciManager command
 
 downloadFile :: CloudInfo -> FilePath -> IO BL.ByteString
 downloadFile CloudInfo{..} filename = do
     let command = getObject ciBucket (T.pack filename)
-    infoM s3LoggerName $ "#S3DOWNLOAD #file " ++ filename
+    noticeM s3LoggerName $ "#S3DOWNLOAD #file " ++ filename
     body <- runResourceT $ do
         GetObjectResponse { gorResponse = resp } 
             <- pureAws ciConfig defServiceConfig ciManager command
