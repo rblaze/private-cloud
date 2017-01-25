@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Concurrent
+import Control.Exception.Safe
 import Control.Monad
 import System.Directory
 import System.FilePath
@@ -33,7 +34,9 @@ main = do
 
     withDatabase (rootDir </> dbName) $ \conn -> do
         noticeM mainLoggerName "#DBOPEN"
-        forever $ do
+        forever $ handleAny
+            (\e -> errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
+            do
                 localFiles <- unrollTreeFiles <$> makeTree rootDir
                 dbFiles <- getFileList conn
                 localDiff <- getLocalChanges rootDir localFiles dbFiles
