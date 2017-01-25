@@ -55,6 +55,7 @@ executable private-cloud-exe
                      , filepath
                      , hslogger
                      , private-cloud
+                     , unix
   default-language:    Haskell2010
   other-modules:       Options
                        Paths_private_cloud
