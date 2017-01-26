@@ -18,17 +18,34 @@ import qualified Data.Text.Read as T
 import PrivateCloud.Aws
 import PrivateCloud.FileInfo
 
-uploadFileInfo :: CloudInfo -> FilePath -> FileInfo -> IO ()
-uploadFileInfo CloudInfo{..} file FileInfo{..} = do
+uploadFileInfo :: CloudInfo -> FilePath -> CloudFileInfo -> IO ()
+uploadFileInfo CloudInfo{..} file CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
     let command = putAttributes (T.pack file)
-            [ replaceAttribute "hash" (T.decodeUtf8 fiHash)
-            , replaceAttribute "size" (T.pack $ show fiLength)
-            , replaceAttribute "mtime" (T.pack $ show fiModTime)
+            [ replaceAttribute "hash" (T.decodeUtf8 cfHash)
+            , replaceAttribute "size" (T.pack $ show cfLength)
+            , replaceAttribute "mtime" (T.pack $ show cfModTime)
+            , replaceAttribute "version" (versionToText cfVersion)
             ]
             ciDomain
+    void $ memoryAws ciConfig defServiceConfig ciManager command
+
+uploadFileMetadata :: CloudInfo -> FilePath -> DbFileInfo -> IO ()
+uploadFileMetadata CloudInfo{..} file DbFileInfo{..} = do
+-- change to a single attribute with a record storing all values.
+-- no need to bother if they present or not, also makes encryption easier.
+-- XXX think about versioning? Maybe use protobufs or bond.
+    let command = PutAttributes
+            { paItemName = T.pack file
+            , paAttributes = [ replaceAttribute "mtime" (T.pack $ show dfModTime) ]
+            , paExpected =
+                [ expectedValue "hash" (T.decodeUtf8 dfHash)
+                , expectedValue "size" (T.pack $ show dfLength)
+                ]
+            , paDomainName = ciDomain
+            }
     void $ memoryAws ciConfig defServiceConfig ciManager command
 
 removeFileInfo :: CloudInfo -> FilePath -> IO ()
@@ -36,7 +53,7 @@ removeFileInfo CloudInfo{..} file =
     void $ memoryAws ciConfig defServiceConfig ciManager $
         deleteAttributes (T.pack file) [] ciDomain
 
-getServerFiles :: CloudInfo -> IO [(FilePath, FileInfo)]
+getServerFiles :: CloudInfo -> IO [(FilePath, CloudFileInfo)]
 getServerFiles CloudInfo{..} = do
     let svcConfig = defServiceConfig
     let loop Nothing = return []
@@ -64,11 +81,13 @@ getServerFiles CloudInfo{..} = do
         filehash <- getAttr "hash" itemData
         size <- readDec =<< getAttr "size" itemData
         mtime <- readDec =<< getAttr "mtime" itemData
+        version <- getAttr "version" itemData
         return
             ( T.unpack itemName
-            , FileInfo
-                { fiLength = size
-                , fiModTime = CTime mtime
-                , fiHash = T.encodeUtf8 filehash
+            , CloudFileInfo
+                { cfLength = size
+                , cfModTime = CTime mtime
+                , cfHash = T.encodeUtf8 filehash
+                , cfVersion = ObjectVersion version
                 }
             )

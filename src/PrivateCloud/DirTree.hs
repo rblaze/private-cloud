@@ -6,15 +6,8 @@ import Data.Function
 import System.Directory.Tree
 import System.FilePath
 import System.Posix.Files
-import System.Posix.Types
 
 import PrivateCloud.FileInfo
-
-data LocalFileInfo = LocalFileInfo
-    { lfLength :: FileOffset
-    , lfModTime :: EpochTime
-    }
-    deriving (Eq, Show)
 
 type FileList = [(FilePath, LocalFileInfo)]
 
@@ -37,7 +30,7 @@ makeTree root = do
         st <- getFileStatus path
         return $ if isRegularFile st
             then Just LocalFileInfo
-                { lfLength = fileSize st
+                { lfLength = fromIntegral $ fileSize st
                 , lfModTime = modificationTime st 
                 }
             else Nothing

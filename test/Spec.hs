@@ -12,6 +12,7 @@ import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
+import PrivateCloud.Aws
 import PrivateCloud.Crypto
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
@@ -132,16 +133,16 @@ testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
     let srcsize = 123
     let srcts = 9876
     [(fname, info)] <- withDatabase filename $ \conn -> do
-        putFileInfo conn "foo" FileInfo
-            { fiHash = srchash
-            , fiLength = srcsize
-            , fiModTime = srcts
+        putFileInfo conn "foo" DbFileInfo
+            { dfHash = srchash
+            , dfLength = srcsize
+            , dfModTime = srcts
             }
         getFileList conn
     assertEqual "invalid filename read" "foo" fname
-    assertEqual "invalid hash read" srchash (fiHash info)
-    assertEqual "invalid size read" srcsize (fiLength info)
-    assertEqual "invalid modtime read" srcts (fiModTime info)
+    assertEqual "invalid hash read" srchash (dfHash info)
+    assertEqual "invalid size read" srcsize (dfLength info)
+    assertEqual "invalid modtime read" srcts (dfModTime info)
 
 testDbDoubleInit :: Assertion
 testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
@@ -151,17 +152,17 @@ testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
     let srcsize = 123
     let srcts = 9876
     withDatabase filename $ \conn ->
-        putFileInfo conn "foo" FileInfo
-            { fiHash = srchash
-            , fiLength = srcsize
-            , fiModTime = srcts
+        putFileInfo conn "foo" DbFileInfo
+            { dfHash = srchash
+            , dfLength = srcsize
+            , dfModTime = srcts
             }
     [(fname, info)] <- withDatabase filename $ \conn ->
         getFileList conn
     assertEqual "invalid filename read" "foo" fname
-    assertEqual "invalid hash read" srchash (fiHash info)
-    assertEqual "invalid size read" srcsize (fiLength info)
-    assertEqual "invalid modtime read" srcts (fiModTime info)
+    assertEqual "invalid hash read" srchash (dfHash info)
+    assertEqual "invalid size read" srcsize (dfLength info)
+    assertEqual "invalid modtime read" srcts (dfModTime info)
 
 testDbUpdate :: Assertion
 testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
@@ -174,21 +175,21 @@ testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
     let secondSize = 1024
     let secondts = 5436
     withDatabase filename $ \conn -> do
-        putFileInfo conn "foo" FileInfo
-            { fiHash = srchash
-            , fiLength = srcsize
-            , fiModTime = srcts
+        putFileInfo conn "foo" DbFileInfo
+            { dfHash = srchash
+            , dfLength = srcsize
+            , dfModTime = srcts
             }
-        putFileInfo conn "foo" FileInfo
-            { fiHash = secondHash
-            , fiLength = secondSize
-            , fiModTime = secondts
+        putFileInfo conn "foo" DbFileInfo
+            { dfHash = secondHash
+            , dfLength = secondSize
+            , dfModTime = secondts
             }
     [(fname, info)] <- withDatabase filename getFileList
     assertEqual "invalid filename read" "foo" fname
-    assertEqual "invalid hash read" secondHash (fiHash info)
-    assertEqual "invalid size read" secondSize (fiLength info)
-    assertEqual "invalid modtime read" secondts (fiModTime info)
+    assertEqual "invalid hash read" secondHash (dfHash info)
+    assertEqual "invalid size read" secondSize (dfLength info)
+    assertEqual "invalid modtime read" secondts (dfModTime info)
 
 testDbDelete :: Assertion
 testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
@@ -200,19 +201,19 @@ testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
     withDatabase filename $ \conn -> do
         v <- getFileList conn
         assertEqual "unexpected data found" [] v
-        putFileInfo conn "foo" FileInfo
-            { fiHash = srchash
-            , fiLength = srcsize
-            , fiModTime = srcts
+        putFileInfo conn "foo" DbFileInfo
+            { dfHash = srchash
+            , dfLength = srcsize
+            , dfModTime = srcts
             }
     [(fname, info)] <- withDatabase filename $ \conn -> do
         v <- getFileList conn
         deleteFileInfo conn "foo"
         return v
     assertEqual "invalid filename read" "foo" fname
-    assertEqual "invalid hash read" srchash (fiHash info)
-    assertEqual "invalid size read" srcsize (fiLength info)
-    assertEqual "invalid modtime read" srcts (fiModTime info)
+    assertEqual "invalid hash read" srchash (dfHash info)
+    assertEqual "invalid size read" srcsize (dfLength info)
+    assertEqual "invalid modtime read" srcts (dfModTime info)
 
     v <- withDatabase filename getFileList
     assertEqual "data found after delete" [] v
@@ -236,9 +237,9 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
     let updateDb changes =
             withDatabase (root </> dbName) $ \conn ->
                 forM_ changes $ \(f, i) -> case i of
-                    ContentChange info -> putFileInfo conn f info
-                    MetadataOnlyChange info -> putFileInfo conn f info
-                    Deleted -> deleteFileInfo conn f
+                    LocalContentChange info -> putFileInfo conn f info
+                    LocalMetadataChange info -> putFileInfo conn f info
+                    LocalDelete -> deleteFileInfo conn f
 
     let check msg golden = do
             diff <- getChanges
@@ -247,17 +248,17 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
 
     check "incorrect change list on initial add" 
         [ ( "a/b/c/foo"
-          , ContentChange FileInfo
-            { fiHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
-            , fiLength = 3
-            , fiModTime = 42
+          , LocalContentChange DbFileInfo
+            { dfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
+            , dfLength = 3
+            , dfModTime = 42
             }
           )
         , ( "a/b/e/f/foo"
-          , ContentChange FileInfo
-            { fiHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
-            , fiLength = 4
-            , fiModTime = 42
+          , LocalContentChange DbFileInfo
+            { dfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , dfLength = 4
+            , dfModTime = 42
             }
           )
         ]
@@ -265,10 +266,10 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "fooo"
     check "can't detect file write"
         [ ( "a/b/c/foo"
-          , ContentChange FileInfo
-            { fiHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
-            , fiLength = 4
-            , fiModTime = 42
+          , LocalContentChange DbFileInfo
+            { dfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            , dfLength = 4
+            , dfModTime = 42
             }
           )
         ]
@@ -280,10 +281,10 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             else (f, i)
     assertEqual "can't detect file write without len change"
         [ ( "a/b/c/foo"
-          , ContentChange FileInfo
-            { fiHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
-            , fiLength = 4
-            , fiModTime = 1
+          , LocalContentChange DbFileInfo
+            { dfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , dfLength = 4
+            , dfModTime = 1
             }
           )
         ]
@@ -292,29 +293,29 @@ testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
 
     check "can't detect timestamp only update"
         [ ( "a/b/c/foo"
-          , MetadataOnlyChange FileInfo
-            { fiHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
-            , fiLength = 4
-            , fiModTime = 42
+          , LocalMetadataChange DbFileInfo
+            { dfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , dfLength = 4
+            , dfModTime = 42
             }
           )
         ]
 
     removeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo")
-    check "can't detect file removal" [ ("a/b/e/f/foo", Deleted) ]
+    check "can't detect file removal" [ ("a/b/e/f/foo", LocalDelete) ]
 
 testGetServerChanges :: Assertion
 testGetServerChanges = do
     let dbFiles =
-            [ ("a/b/bar", FileInfo
-                { fiHash = "hash1"
-                , fiLength = 50
-                , fiModTime = 10
+            [ ("a/b/bar", DbFileInfo
+                { dfHash = "hash1"
+                , dfLength = 50
+                , dfModTime = 10
                 })
-            , ("a/b/c/foo", FileInfo
-                { fiHash = "hash0"
-                , fiLength = 10
-                , fiModTime = 1
+            , ("a/b/c/foo", DbFileInfo
+                { dfHash = "hash0"
+                , dfLength = 10
+                , dfModTime = 1
                 })
             ]
 
@@ -322,108 +323,138 @@ testGetServerChanges = do
             diff <- getServerChanges dbFiles serverFiles
             assertEqual msg golden diff
 
-    check "invalid list for no changes" dbFiles []
+    check "invalid list for no changes"
+        [ ("a/b/bar", CloudFileInfo
+            { cfHash = "hash1"
+            , cfLength = 50
+            , cfModTime = 10
+            , cfVersion = ObjectVersion "99"
+            })
+        , ("a/b/c/foo", CloudFileInfo
+            { cfHash = "hash0"
+            , cfLength = 10
+            , cfModTime = 1
+            , cfVersion = ObjectVersion "99"
+            })
+        ]
+        []
 
     check "invalid list for server delete" 
-            [ ("a/b/c/foo", FileInfo
-                { fiHash = "hash0"
-                , fiLength = 10
-                , fiModTime = 1
+            [ ("a/b/c/foo", CloudFileInfo
+                { cfHash = "hash0"
+                , cfLength = 10
+                , cfModTime = 1
+                , cfVersion = ObjectVersion "99"
                 })
             ]
-            [ ("a/b/bar", Deleted) ]
+            [ ("a/b/bar", CloudDelete) ]
 
     check "invalid list for server tail delete" 
-            [ ("a/b/bar", FileInfo
-                { fiHash = "hash1"
-                , fiLength = 50
-                , fiModTime = 10
+            [ ("a/b/bar", CloudFileInfo
+                { cfHash = "hash1"
+                , cfLength = 50
+                , cfModTime = 10
+                , cfVersion = ObjectVersion "99"
                 })
             ]
-            [ ("a/b/c/foo", Deleted) ]
+            [ ("a/b/c/foo", CloudDelete) ]
 
     check "invalid list for server add" 
-            [ ("a/b/bar", FileInfo
-                { fiHash = "hash1"
-                , fiLength = 50
-                , fiModTime = 10
+            [ ("a/b/bar", CloudFileInfo
+                { cfHash = "hash1"
+                , cfLength = 50
+                , cfModTime = 10
+                , cfVersion = ObjectVersion "99"
                 })
-            , ("a/b/bonfire", FileInfo
-                { fiHash = "hash3"
-                , fiLength = 20
-                , fiModTime = 100
+            , ("a/b/bonfire", CloudFileInfo
+                { cfHash = "hash3"
+                , cfLength = 20
+                , cfModTime = 100
+                , cfVersion = ObjectVersion "99"
                 })
-            , ("a/b/c/foo", FileInfo
-                { fiHash = "hash0"
-                , fiLength = 10
-                , fiModTime = 1
+            , ("a/b/c/foo", CloudFileInfo
+                { cfHash = "hash0"
+                , cfLength = 10
+                , cfModTime = 1
+                , cfVersion = ObjectVersion "99"
                 })
             ]
-            [ ("a/b/bonfire", ContentChange FileInfo
-                { fiHash = "hash3"
-                , fiLength = 20
-                , fiModTime = 100
+            [ ("a/b/bonfire", CloudContentChange CloudFileInfo
+                { cfHash = "hash3"
+                , cfLength = 20
+                , cfModTime = 100
+                , cfVersion = ObjectVersion "99"
                 })
             ]
 
     check "invalid list for server tail add" 
-            [ ("a/b/bar", FileInfo
-                { fiHash = "hash1"
-                , fiLength = 50
-                , fiModTime = 10
+            [ ("a/b/bar", CloudFileInfo
+                { cfHash = "hash1"
+                , cfLength = 50
+                , cfModTime = 10
+                , cfVersion = ObjectVersion "99"
                 })
-            , ("a/b/c/foo", FileInfo
-                { fiHash = "hash0"
-                , fiLength = 10
-                , fiModTime = 1
+            , ("a/b/c/foo", CloudFileInfo
+                { cfHash = "hash0"
+                , cfLength = 10
+                , cfModTime = 1
+                , cfVersion = ObjectVersion "99"
                 })
-            , ("a/b/delta", FileInfo
-                { fiHash = "hash14"
-                , fiLength = 20
-                , fiModTime = 101
+            , ("a/b/delta", CloudFileInfo
+                { cfHash = "hash14"
+                , cfLength = 20
+                , cfModTime = 101
+                , cfVersion = ObjectVersion "99"
                 })
             ]
-            [ ("a/b/delta", ContentChange FileInfo
-                { fiHash = "hash14"
-                , fiLength = 20
-                , fiModTime = 101
+            [ ("a/b/delta", CloudContentChange CloudFileInfo
+                { cfHash = "hash14"
+                , cfLength = 20
+                , cfModTime = 101
+                , cfVersion = ObjectVersion "99"
                 })
             ]
 
     check "invalid list for server edit" 
-            [ ("a/b/bar", FileInfo
-                { fiHash = "hash1"
-                , fiLength = 50
-                , fiModTime = 10
+            [ ("a/b/bar", CloudFileInfo
+                { cfHash = "hash1"
+                , cfLength = 50
+                , cfModTime = 10
+                , cfVersion = ObjectVersion "99"
                 })
-            , ("a/b/c/foo", FileInfo
-                { fiHash = "hash10"
-                , fiLength = 10
-                , fiModTime = 17
+            , ("a/b/c/foo", CloudFileInfo
+                { cfHash = "hash10"
+                , cfLength = 10
+                , cfModTime = 17
+                , cfVersion = ObjectVersion "99"
                 })
             ]
-            [ ("a/b/c/foo", ContentChange FileInfo
-                { fiHash = "hash10"
-                , fiLength = 10
-                , fiModTime = 17
+            [ ("a/b/c/foo", CloudContentChange CloudFileInfo
+                { cfHash = "hash10"
+                , cfLength = 10
+                , cfModTime = 17
+                , cfVersion = ObjectVersion "99"
                 })
             ]
 
     check "invalid list for server metadata change" 
-            [ ("a/b/bar", FileInfo
-                { fiHash = "hash1"
-                , fiLength = 50
-                , fiModTime = 10
+            [ ("a/b/bar", CloudFileInfo
+                { cfHash = "hash1"
+                , cfLength = 50
+                , cfModTime = 10
+                , cfVersion = ObjectVersion "99"
                 })
-            , ("a/b/c/foo", FileInfo
-                { fiHash = "hash0"
-                , fiLength = 10
-                , fiModTime = 11
+            , ("a/b/c/foo", CloudFileInfo
+                { cfHash = "hash0"
+                , cfLength = 10
+                , cfModTime = 11
+                , cfVersion = ObjectVersion "99"
                 })
             ]
-            [ ("a/b/c/foo", MetadataOnlyChange FileInfo
-                { fiHash = "hash0"
-                , fiLength = 10
-                , fiModTime = 11
+            [ ("a/b/c/foo", CloudMetadataChange CloudFileInfo
+                { cfHash = "hash0"
+                , cfLength = 10
+                , cfModTime = 11
+                , cfVersion = ObjectVersion "99"
                 })
             ]

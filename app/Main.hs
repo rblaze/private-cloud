@@ -42,15 +42,21 @@ main = do
                 localDiff <- getLocalChanges rootDir localFiles dbFiles
 
                 forM_ localDiff $ \(f, i) -> case i of
-                    ContentChange info -> do
+                    LocalContentChange info -> do
                         body <- BL.readFile (rootDir </> f)
-                        uploadFile config f body
-                        uploadFileInfo config f info
+                        version <- uploadFile config f body
+                        uploadFileInfo config f
+                            CloudFileInfo
+                                { cfHash = dfHash info
+                                , cfModTime = dfModTime info
+                                , cfLength = dfLength info
+                                , cfVersion = version
+                                }
                         putFileInfo conn f info
-                    MetadataOnlyChange info -> do
-                        uploadFileInfo config f info
+                    LocalMetadataChange info -> do
+                        uploadFileMetadata config f info
                         putFileInfo conn f info
-                    Deleted -> do
+                    LocalDelete -> do
                         deleteFile config f
                         removeFileInfo config f
                         deleteFileInfo conn f
@@ -59,16 +65,26 @@ main = do
                 serverFiles <- getServerFiles config
                 serverDiff <- getServerChanges newDbFiles serverFiles
                 forM_ serverDiff $ \(f, i) -> case i of
-                    ContentChange info -> do
-                        body <- downloadFile config f
+                    CloudContentChange info -> do
+                        body <- downloadFile config f (cfVersion info)
                         createDirectoryIfMissing True (dropFileName $ rootDir </> f)
                         BL.writeFile (rootDir </> f) body
-                        setFileTimes (rootDir </> f) (fiModTime info) (fiModTime info)
-                        putFileInfo conn f info
-                    MetadataOnlyChange info -> do
-                        setFileTimes (rootDir </> f) (fiModTime info) (fiModTime info)
-                        putFileInfo conn f info
-                    Deleted -> do
+                        setFileTimes (rootDir </> f) (cfModTime info) (cfModTime info)
+                        putFileInfo conn f
+                            DbFileInfo
+                                { dfHash = cfHash info
+                                , dfLength = cfLength info
+                                , dfModTime = cfModTime info
+                                }
+                    CloudMetadataChange info -> do
+                        setFileTimes (rootDir </> f) (cfModTime info) (cfModTime info)
+                        putFileInfo conn f
+                            DbFileInfo
+                                { dfHash = cfHash info
+                                , dfLength = cfLength info
+                                , dfModTime = cfModTime info
+                                }
+                    CloudDelete -> do
                         removeFile (rootDir </> f)
                         deleteFileInfo conn f
 
