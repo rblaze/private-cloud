@@ -36,14 +36,14 @@ defaultCloudInfo = do
         , ciBucket = "blaze-privatecloud"
         }
 
-newtype ObjectVersion = ObjectVersion T.Text
+newtype VersionId = VersionId T.Text
     deriving Eq
 
-instance Show ObjectVersion where
-    show (ObjectVersion v) = show v
+instance Show VersionId where
+    show (VersionId v) = show v
 
-versionToText :: ObjectVersion -> T.Text
-versionToText (ObjectVersion txt) = txt
+versionToText :: VersionId -> T.Text
+versionToText (VersionId txt) = txt
 
 data AwsException = AwsException String
     deriving Show

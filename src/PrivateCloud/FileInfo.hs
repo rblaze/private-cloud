@@ -26,6 +26,6 @@ data CloudFileInfo = CloudFileInfo
     { cfHash :: BS.ByteString
     , cfLength :: Word64
     , cfModTime :: EpochTime
-    , cfVersion :: ObjectVersion
+    , cfVersion :: VersionId
     }
     deriving (Eq, Show)

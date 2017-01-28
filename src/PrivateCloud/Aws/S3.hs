@@ -20,7 +20,7 @@ import PrivateCloud.Aws
 s3LoggerName :: String
 s3LoggerName = "PrivateCloud.AWS.S3"
 
-uploadFile :: CloudInfo -> FilePath -> BL.ByteString -> IO ObjectVersion
+uploadFile :: CloudInfo -> FilePath -> BL.ByteString -> IO VersionId
 uploadFile CloudInfo{..} filename body = do
     -- XXX replace with multipart upload, to allow streaming encryption
     let command = putObject ciBucket (T.pack filename) (RequestBodyLBS body)
@@ -29,7 +29,7 @@ uploadFile CloudInfo{..} filename body = do
     infoM s3LoggerName $ "#S3UPLOADED #file " ++ filename
     case porVersionId resp of
         Nothing -> throw $ AwsException "no version returned"
-        Just version -> return $ ObjectVersion version
+        Just version -> return $ VersionId version
 
 deleteFile :: CloudInfo -> FilePath -> IO ()
 deleteFile CloudInfo{..} filename = do
@@ -37,8 +37,8 @@ deleteFile CloudInfo{..} filename = do
     noticeM s3LoggerName $ "#S3DELETE #file " ++ filename
     void $ memoryAws ciConfig defServiceConfig ciManager command
 
-downloadFile :: CloudInfo -> FilePath -> ObjectVersion -> IO BL.ByteString
-downloadFile CloudInfo{..} filename (ObjectVersion version) = do
+downloadFile :: CloudInfo -> FilePath -> VersionId -> IO BL.ByteString
+downloadFile CloudInfo{..} filename (VersionId version) = do
     let command = (getObject ciBucket (T.pack filename))
                     { goVersionId = Just version }
     noticeM s3LoggerName $ "#S3DOWNLOAD #file " ++ filename

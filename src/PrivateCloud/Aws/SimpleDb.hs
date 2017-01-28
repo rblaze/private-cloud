@@ -88,6 +88,6 @@ getServerFiles CloudInfo{..} = do
                 { cfLength = size
                 , cfModTime = CTime mtime
                 , cfHash = T.encodeUtf8 filehash
-                , cfVersion = ObjectVersion version
+                , cfVersion = VersionId version
                 }
             )

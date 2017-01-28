@@ -328,13 +328,13 @@ testGetServerChanges = do
             { cfHash = "hash1"
             , cfLength = 50
             , cfModTime = 10
-            , cfVersion = ObjectVersion "99"
+            , cfVersion = VersionId "99"
             })
         , ("a/b/c/foo", CloudFileInfo
             { cfHash = "hash0"
             , cfLength = 10
             , cfModTime = 1
-            , cfVersion = ObjectVersion "99"
+            , cfVersion = VersionId "99"
             })
         ]
         []
@@ -344,7 +344,7 @@ testGetServerChanges = do
                 { cfHash = "hash0"
                 , cfLength = 10
                 , cfModTime = 1
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
             [ ("a/b/bar", CloudDelete) ]
@@ -354,7 +354,7 @@ testGetServerChanges = do
                 { cfHash = "hash1"
                 , cfLength = 50
                 , cfModTime = 10
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
             [ ("a/b/c/foo", CloudDelete) ]
@@ -364,26 +364,26 @@ testGetServerChanges = do
                 { cfHash = "hash1"
                 , cfLength = 50
                 , cfModTime = 10
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             , ("a/b/bonfire", CloudFileInfo
                 { cfHash = "hash3"
                 , cfLength = 20
                 , cfModTime = 100
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             , ("a/b/c/foo", CloudFileInfo
                 { cfHash = "hash0"
                 , cfLength = 10
                 , cfModTime = 1
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
             [ ("a/b/bonfire", CloudContentChange CloudFileInfo
                 { cfHash = "hash3"
                 , cfLength = 20
                 , cfModTime = 100
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
 
@@ -392,26 +392,26 @@ testGetServerChanges = do
                 { cfHash = "hash1"
                 , cfLength = 50
                 , cfModTime = 10
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             , ("a/b/c/foo", CloudFileInfo
                 { cfHash = "hash0"
                 , cfLength = 10
                 , cfModTime = 1
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             , ("a/b/delta", CloudFileInfo
                 { cfHash = "hash14"
                 , cfLength = 20
                 , cfModTime = 101
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
             [ ("a/b/delta", CloudContentChange CloudFileInfo
                 { cfHash = "hash14"
                 , cfLength = 20
                 , cfModTime = 101
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
 
@@ -420,20 +420,20 @@ testGetServerChanges = do
                 { cfHash = "hash1"
                 , cfLength = 50
                 , cfModTime = 10
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             , ("a/b/c/foo", CloudFileInfo
                 { cfHash = "hash10"
                 , cfLength = 10
                 , cfModTime = 17
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
             [ ("a/b/c/foo", CloudContentChange CloudFileInfo
                 { cfHash = "hash10"
                 , cfLength = 10
                 , cfModTime = 17
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
 
@@ -442,19 +442,19 @@ testGetServerChanges = do
                 { cfHash = "hash1"
                 , cfLength = 50
                 , cfModTime = 10
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             , ("a/b/c/foo", CloudFileInfo
                 { cfHash = "hash0"
                 , cfLength = 10
                 , cfModTime = 11
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
             [ ("a/b/c/foo", CloudMetadataChange CloudFileInfo
                 { cfHash = "hash0"
                 , cfLength = 10
                 , cfModTime = 11
-                , cfVersion = ObjectVersion "99"
+                , cfVersion = VersionId "99"
                 })
             ]
