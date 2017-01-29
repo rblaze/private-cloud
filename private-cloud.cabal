@@ -16,6 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     PrivateCloud.Aws
+                       PrivateCloud.Aws.Cleanup
                        PrivateCloud.Aws.S3
                        PrivateCloud.Aws.SimpleDb
                        PrivateCloud.Crypto
@@ -29,6 +30,7 @@ library
                      , aws
                      , bytestring
                      , conduit
+                     , conduit-combinators
                      , conduit-extra
                      , cryptonite
                      , directory-tree
@@ -41,7 +43,9 @@ library
                      , safe-exceptions
                      , sqlite-simple
                      , text
+                     , transformers
                      , unix
+                     , unordered-containers
   default-language:    Haskell2010
 
 executable private-cloud-exe

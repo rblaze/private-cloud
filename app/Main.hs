@@ -10,6 +10,7 @@ import System.Posix.Files
 import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws
+import PrivateCloud.Aws.Cleanup
 import PrivateCloud.Aws.S3
 import PrivateCloud.Aws.SimpleDb
 import PrivateCloud.DirTree
@@ -88,4 +89,5 @@ main = do
                         removeFile (rootDir </> f)
                         deleteFileInfo conn f
 
+                deleteOldVersions config
                 threadDelay 10000000

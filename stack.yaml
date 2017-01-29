@@ -38,8 +38,8 @@ resolver: lts-7.16
 packages:
 - '.'
 - location:
-    git: https://github.com/rblaze/aws
-    commit: 8ef6f9a
+    git: https://github.com/aristidb/aws
+    commit: db3dd9e
   extra-dep: true
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
