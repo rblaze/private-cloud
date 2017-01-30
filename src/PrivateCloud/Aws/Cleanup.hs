@@ -7,6 +7,7 @@ import Aws.S3
 import Conduit
 import Control.Monad
 import Control.Monad.Trans.State.Strict
+import Data.Time.Clock
 import System.Log.Logger
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
@@ -25,41 +26,68 @@ data CleanupState = CleanupState
 noVersion :: VersionId
 noVersion = VersionId T.empty
 
+-- 24 hours
+maxUnusedTime :: NominalDiffTime
+maxUnusedTime = 86400
+
 deleteOldVersions :: CloudInfo -> IO ()
 deleteOldVersions config@CloudInfo{..} = do
     infoM s3LoggerName "#S3CLEANUP_START"
     filelist <- getServerFiles config
     let knownVersions = HM.fromList $ map (\(f, i) -> (T.pack f, cfVersion i)) filelist
     let command = getBucketObjectVersions ciBucket
-    let checkFile info = do
-            let key = oviKey info
-            let version = oviVersionId info
+
+    -- delete all versions older than current one
+    -- delete all versions older than 24 hours in unknown files or before current one:
+    --      time between upload and database write should not be that long
+    let checkCurrentFile st info
+            | seenStoredVersion st = return True
+            | version == storedVersion st = do
+                logInfo $ "#S3CLEANUP_FOUNDCURRENT #file " ++ show key ++ " #version " ++ show version
+                put $ st { seenStoredVersion = True }
+                return False
+            | otherwise = do
+                time <- liftIO getCurrentTime
+                let age = diffUTCTime time (oviLastModified info)
+                let tooOld = age > maxUnusedTime
+                unless tooOld $ logInfo $ "#S3CLEANUP_RECENT #file " ++ show key ++ " #version " ++ show version ++ " #age " ++ show age
+                return tooOld
+            where
+            key = oviKey info
+            version = VersionId $ oviVersionId info
+
+    let checkNextFile info
+            | dbinfo == Nothing = do
+                time <- liftIO getCurrentTime
+                let age = diffUTCTime time (oviLastModified info)
+                let tooOld = age > maxUnusedTime
+                logInfo $ "#S3CLEANUP_UNKNOWN #file " ++ show key ++ " #version " ++ show version ++ " #age " ++ show age
+                return tooOld
+            | otherwise = do
+                let isCurrent = version == dbVersion
+                logInfo $ "#S3CLEANUP_KNOWN #file " ++ show key ++ " #version " ++ show version ++ " #isCurrent " ++ show isCurrent
+                put $ CleanupState
+                        { currentKey = key
+                        , storedVersion = dbVersion
+                        , seenStoredVersion = isCurrent
+                        }
+                if isCurrent
+                    then return False
+                    else do
+                        time <- liftIO getCurrentTime
+                        let age = diffUTCTime time (oviLastModified info)
+                        return $ age > maxUnusedTime
+            where
+            key = oviKey info
+            version = VersionId $ oviVersionId info
+            dbinfo = HM.lookup key knownVersions
+            Just dbVersion = dbinfo
+
+    let checkVersion info = do
             st <- get
-            if key == currentKey st
-                then if | seenStoredVersion st -> liftIO $ deleteVersion key version
-                        | VersionId version == storedVersion st -> do
-                            logInfo $ "#S3CLEANUP_FOUNDCURRENT #file " ++ show key ++ " #version " ++ show version
-                            put $ st { seenStoredVersion = True }
-                        | otherwise -> return ()
-                else case HM.lookup key knownVersions of
-                        Just v -> do
-                            let isCurrent = VersionId version == v
-                            logInfo $ "#S3CLEANUP_KNOWN #file " ++ show key ++ " #version " ++ show version ++ " #isCurrent " ++ show isCurrent
-                            put $ CleanupState
-                                    { currentKey = key
-                                    , storedVersion = v
-                                    , seenStoredVersion = isCurrent
-                                    }
-                        Nothing ->  do
-                            logInfo $ "#S3CLEANUP_UNKNOWN #file " ++ show key
-                            -- unknown file, delete all versions
-                            -- FIXME race condition with upload
-                            liftIO $ deleteVersion key version
-                            put $ CleanupState
-                                    { currentKey = key
-                                    , storedVersion = noVersion
-                                    , seenStoredVersion = True
-                                    }
+            if oviKey info == currentKey st
+                then checkCurrentFile st info
+                else checkNextFile info
 
     let baseState = CleanupState
             { currentKey = T.empty
@@ -69,10 +97,13 @@ deleteOldVersions config@CloudInfo{..} = do
     runResourceT $ flip evalStateT baseState $ runConduit $ awsIteratedList'
             (\r -> readResponseIO =<< (lift $ aws ciConfig defServiceConfig ciManager r))
             command
-        .| mapM_C checkFile
+        .| filterMC checkVersion
+        .| mapM_C deleteVersion
     logInfo "#S3CLEANUP_END"
     where
-    deleteVersion key version = do
+    deleteVersion info = liftIO $ do
+        let key = oviKey info
+        let version = oviVersionId info
         let delCommand = deleteObjectVersion ciBucket key version
         noticeM s3LoggerName $ "#S3DELETEVERSION #file " ++ show key
             ++ " #version " ++ show version

@@ -43,6 +43,7 @@ library
                      , safe-exceptions
                      , sqlite-simple
                      , text
+                     , time
                      , transformers
                      , unix
                      , unordered-containers
