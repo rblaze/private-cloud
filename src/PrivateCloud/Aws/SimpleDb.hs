@@ -4,8 +4,8 @@ module PrivateCloud.Aws.SimpleDb where
 import Aws.Aws
 import Aws.Core
 import Aws.SimpleDb
+import Conduit
 import Control.Monad
-import Control.Monad.Trans.Resource
 import Data.Function
 import Data.List
 import Data.Maybe
@@ -55,23 +55,11 @@ removeFileInfo CloudInfo{..} file =
 
 getServerFiles :: CloudInfo -> IO [(FilePath, CloudFileInfo)]
 getServerFiles CloudInfo{..} = do
-    let svcConfig = defServiceConfig
-    let loop Nothing = return []
-        loop (Just req) = do
-            (segment, nextReq) <- runResourceT $ do
-                resp <- pureAws ciConfig svcConfig ciManager req
-                let segment = listResponse resp
-                let nextReq = nextIteratedRequest req resp
-                return (segment, nextReq)
-            rest <- loop nextReq
-            return $ segment : rest
-    let firstQuery = Select
-            { sSelectExpression = "select * from " <> ciDomain
-            , sConsistentRead = True
-            , sNextToken = Nothing
-            }
-    items <- loop $ Just firstQuery
-    return $ sortBy (compare `on` fst) $ mapMaybe conv $ concat items
+    let query = (select $ "select * from " <> ciDomain) { sConsistentRead = True }
+    items <- runConduitRes $
+        awsIteratedList ciConfig defServiceConfig ciManager query
+            .| sinkList
+    return $ sortBy (compare `on` fst) $ mapMaybe conv items
     where
     readDec t = case T.decimal t of
                     Right (v, "") -> Just v

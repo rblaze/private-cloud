@@ -5,8 +5,10 @@ import Aws.Aws
 import Aws.Core
 import Aws.S3
 import Conduit
+import Control.Arrow
 import Control.Monad
 import Control.Monad.Trans.State.Strict
+import Data.Maybe
 import Data.Time.Clock
 import System.Log.Logger
 import qualified Data.HashMap.Strict as HM
@@ -34,7 +36,7 @@ deleteOldVersions :: CloudInfo -> IO ()
 deleteOldVersions config@CloudInfo{..} = do
     infoM s3LoggerName "#S3CLEANUP_START"
     filelist <- getServerFiles config
-    let knownVersions = HM.fromList $ map (\(f, i) -> (T.pack f, cfVersion i)) filelist
+    let knownVersions = HM.fromList $ map (T.pack *** cfVersion) filelist
     let command = getBucketObjectVersions ciBucket
 
     -- delete all versions older than current one
@@ -57,7 +59,7 @@ deleteOldVersions config@CloudInfo{..} = do
             version = VersionId $ oviVersionId info
 
     let checkNextFile info
-            | dbinfo == Nothing = do
+            | isNothing dbinfo = do
                 time <- liftIO getCurrentTime
                 let age = diffUTCTime time (oviLastModified info)
                 let tooOld = age > maxUnusedTime
@@ -66,7 +68,7 @@ deleteOldVersions config@CloudInfo{..} = do
             | otherwise = do
                 let isCurrent = version == dbVersion
                 logInfo $ "#S3CLEANUP_KNOWN #file " ++ show key ++ " #version " ++ show version ++ " #isCurrent " ++ show isCurrent
-                put $ CleanupState
+                put CleanupState
                         { currentKey = key
                         , storedVersion = dbVersion
                         , seenStoredVersion = isCurrent
@@ -95,7 +97,7 @@ deleteOldVersions config@CloudInfo{..} = do
             , seenStoredVersion = False
             }
     runResourceT $ flip evalStateT baseState $ runConduit $ awsIteratedList'
-            (\r -> readResponseIO =<< (lift $ aws ciConfig defServiceConfig ciManager r))
+            (\r -> readResponseIO =<< lift (aws ciConfig defServiceConfig ciManager r))
             command
         .| filterMC checkVersion
         .| mapM_C deleteVersion
