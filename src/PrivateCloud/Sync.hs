@@ -2,9 +2,9 @@
 module PrivateCloud.Sync where
 
 import Control.Monad
+import Data.Time.Clock.POSIX
 import System.FilePath
 import System.Log.Logger
-import System.Posix.Types
 
 import PrivateCloud.Crypto
 import PrivateCloud.DirTree
@@ -39,7 +39,7 @@ logLocalChange file oldSize newSize = do
     let _ = fromIntegral newSize :: Int
     noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
-logLocalMetadataChange :: FilePath -> EpochTime -> EpochTime -> IO ()
+logLocalMetadataChange :: FilePath -> POSIXTime -> POSIXTime -> IO ()
 logLocalMetadataChange file oldTs newTs =
     noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
@@ -59,7 +59,7 @@ logServerChange file oldInfo newInfo =
         ++ " #size " ++ show (cfLength newInfo)
         ++ " #oldsize " ++  show (dfLength oldInfo)
 
-logServerMetadataChange :: FilePath -> EpochTime -> EpochTime -> IO ()
+logServerMetadataChange :: FilePath -> POSIXTime -> POSIXTime -> IO ()
 logServerMetadataChange file oldTs newTs =
     noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs

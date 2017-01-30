@@ -31,7 +31,7 @@ makeTree root = do
         return $ if isRegularFile st
             then Just LocalFileInfo
                 { lfLength = fromIntegral $ fileSize st
-                , lfModTime = modificationTime st 
+                , lfModTime = realToFrac $ modificationTime st 
                 }
             else Nothing
     return $ sortDirByName tree

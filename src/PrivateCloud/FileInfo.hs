@@ -1,7 +1,7 @@
 module PrivateCloud.FileInfo where
 
 import Data.Word
-import System.Posix.Types
+import Data.Time.Clock.POSIX
 import qualified Data.ByteString as BS
 
 import PrivateCloud.Aws
@@ -11,21 +11,21 @@ dbName = ".privatecloud"
 
 data LocalFileInfo = LocalFileInfo
     { lfLength :: Word64
-    , lfModTime :: EpochTime
+    , lfModTime :: POSIXTime
     }
     deriving (Eq, Show)
 
 data DbFileInfo = DbFileInfo
     { dfHash :: BS.ByteString
     , dfLength :: Word64
-    , dfModTime :: EpochTime
+    , dfModTime :: POSIXTime
     }
     deriving (Eq, Show)
 
 data CloudFileInfo = CloudFileInfo
     { cfHash :: BS.ByteString
     , cfLength :: Word64
-    , cfModTime :: EpochTime
+    , cfModTime :: POSIXTime
     , cfVersion :: VersionId
     }
     deriving (Eq, Show)

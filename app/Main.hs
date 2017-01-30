@@ -3,10 +3,13 @@ module Main where
 import Control.Concurrent
 import Control.Exception.Safe
 import Control.Monad
+import Data.Time.Clock.POSIX
+import Foreign.C.Types
 import System.Directory
 import System.FilePath
 import System.Log.Logger
 import System.Posix.Files
+import System.Posix.Types
 import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws
@@ -70,7 +73,7 @@ main = do
                         body <- downloadFile config f (cfVersion info)
                         createDirectoryIfMissing True (dropFileName $ rootDir </> f)
                         BL.writeFile (rootDir </> f) body
-                        setFileTimes (rootDir </> f) (cfModTime info) (cfModTime info)
+                        setFileTimes (rootDir </> f) (posix2epoch $ cfModTime info) (posix2epoch $ cfModTime info)
                         putFileInfo conn f
                             DbFileInfo
                                 { dfHash = cfHash info
@@ -78,7 +81,7 @@ main = do
                                 , dfModTime = cfModTime info
                                 }
                     CloudMetadataChange info -> do
-                        setFileTimes (rootDir </> f) (cfModTime info) (cfModTime info)
+                        setFileTimes (rootDir </> f) (posix2epoch $ cfModTime info) (posix2epoch $ cfModTime info)
                         putFileInfo conn f
                             DbFileInfo
                                 { dfHash = cfHash info
@@ -91,3 +94,6 @@ main = do
 
                 deleteOldVersions config
                 threadDelay 10000000
+    where
+    posix2epoch :: POSIXTime -> EpochTime
+    posix2epoch = CTime . round

@@ -1,8 +1,8 @@
 {-# Language OverloadedStrings, RecordWildCards #-}
 module PrivateCloud.LocalDb where
 
+import Data.Int
 import Database.SQLite.Simple
-import Foreign.C.Types
 
 import PrivateCloud.FileInfo
 
@@ -27,13 +27,13 @@ getFileList DbInfo{ dbConnection = conn } =
         , DbFileInfo
             { dfHash = hash
             , dfLength = size
-            , dfModTime = CTime ts
+            , dfModTime = realToFrac (ts :: Int64)
             }
         )
 
 putFileInfo :: DbInfo -> FilePath -> DbFileInfo -> IO ()
 putFileInfo DbInfo{ dbConnection = conn } file DbFileInfo{..} = withTransaction conn $ do
-    let CTime ts = dfModTime
+    let ts = round dfModTime :: Int64
     execute conn "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize, lastSyncedModTime) VALUES (?,?,?,?)" (file, dfHash, dfLength, ts)
 
 deleteFileInfo :: DbInfo -> FilePath -> IO ()

@@ -10,8 +10,10 @@ import Data.Function
 import Data.List
 import Data.Maybe
 import Data.Monoid
-import Foreign.C.Types
+import Data.Text.Format
+import Data.Word
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Read as T
 
@@ -23,10 +25,11 @@ uploadFileInfo CloudInfo{..} file CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
+    let timestr = format "{}" (Only $ left 14 '0' cfModTime)
     let command = putAttributes (T.pack file)
             [ replaceAttribute "hash" (T.decodeUtf8 cfHash)
             , replaceAttribute "size" (T.pack $ show cfLength)
-            , replaceAttribute "mtime" (T.pack $ show cfModTime)
+            , replaceAttribute "mtime" (TL.toStrict timestr)
             , replaceAttribute "version" (versionToText cfVersion)
             ]
             ciDomain
@@ -74,7 +77,7 @@ getServerFiles CloudInfo{..} = do
             ( T.unpack itemName
             , CloudFileInfo
                 { cfLength = size
-                , cfModTime = CTime mtime
+                , cfModTime = realToFrac (mtime :: Word64)
                 , cfHash = T.encodeUtf8 filehash
                 , cfVersion = VersionId version
                 }
