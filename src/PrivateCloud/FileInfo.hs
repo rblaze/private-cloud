@@ -29,3 +29,8 @@ data CloudFileInfo = CloudFileInfo
     , cfVersion :: VersionId
     }
     deriving (Eq, Show)
+
+data CloudFileStatus
+    = CloudFile CloudFileInfo
+    | CloudDeleteMarker
+    deriving Show

@@ -324,13 +324,13 @@ testGetServerChanges = do
             assertEqual msg golden diff
 
     check "invalid list for no changes"
-        [ ("a/b/bar", CloudFileInfo
+        [ ("a/b/bar", CloudFile CloudFileInfo
             { cfHash = "hash1"
             , cfLength = 50
             , cfModTime = 10
             , cfVersion = VersionId "99"
             })
-        , ("a/b/c/foo", CloudFileInfo
+        , ("a/b/c/foo", CloudFile CloudFileInfo
             { cfHash = "hash0"
             , cfLength = 10
             , cfModTime = 1
@@ -340,121 +340,132 @@ testGetServerChanges = do
         []
 
     check "invalid list for server delete" 
-            [ ("a/b/c/foo", CloudFileInfo
-                { cfHash = "hash0"
-                , cfLength = 10
-                , cfModTime = 1
-                , cfVersion = VersionId "99"
-                })
-            ]
-            [ ("a/b/bar", CloudDelete) ]
+        [ ("a/b/c/foo", CloudFile CloudFileInfo
+            { cfHash = "hash0"
+            , cfLength = 10
+            , cfModTime = 1
+            , cfVersion = VersionId "99"
+            })
+        ]
+        [ ("a/b/bar", CloudDelete) ]
+
+    check "invalid list for server marker delete" 
+        [ ("a/b/bar", CloudDeleteMarker)
+        , ("a/b/c/foo", CloudFile CloudFileInfo
+            { cfHash = "hash0"
+            , cfLength = 10
+            , cfModTime = 1
+            , cfVersion = VersionId "99"
+            })
+        ]
+        [ ("a/b/bar", CloudDelete) ]
 
     check "invalid list for server tail delete" 
-            [ ("a/b/bar", CloudFileInfo
-                { cfHash = "hash1"
-                , cfLength = 50
-                , cfModTime = 10
-                , cfVersion = VersionId "99"
-                })
-            ]
-            [ ("a/b/c/foo", CloudDelete) ]
+        [ ("a/b/bar", CloudFile CloudFileInfo
+            { cfHash = "hash1"
+            , cfLength = 50
+            , cfModTime = 10
+            , cfVersion = VersionId "99"
+            })
+        ]
+        [ ("a/b/c/foo", CloudDelete) ]
 
     check "invalid list for server add" 
-            [ ("a/b/bar", CloudFileInfo
-                { cfHash = "hash1"
-                , cfLength = 50
-                , cfModTime = 10
-                , cfVersion = VersionId "99"
-                })
-            , ("a/b/bonfire", CloudFileInfo
-                { cfHash = "hash3"
-                , cfLength = 20
-                , cfModTime = 100
-                , cfVersion = VersionId "99"
-                })
-            , ("a/b/c/foo", CloudFileInfo
-                { cfHash = "hash0"
-                , cfLength = 10
-                , cfModTime = 1
-                , cfVersion = VersionId "99"
-                })
-            ]
-            [ ("a/b/bonfire", CloudContentChange CloudFileInfo
-                { cfHash = "hash3"
-                , cfLength = 20
-                , cfModTime = 100
-                , cfVersion = VersionId "99"
-                })
-            ]
+        [ ("a/b/bar", CloudFile CloudFileInfo
+            { cfHash = "hash1"
+            , cfLength = 50
+            , cfModTime = 10
+            , cfVersion = VersionId "99"
+            })
+        , ("a/b/bonfire", CloudFile CloudFileInfo
+            { cfHash = "hash3"
+            , cfLength = 20
+            , cfModTime = 100
+            , cfVersion = VersionId "99"
+            })
+        , ("a/b/c/foo", CloudFile CloudFileInfo
+            { cfHash = "hash0"
+            , cfLength = 10
+            , cfModTime = 1
+            , cfVersion = VersionId "99"
+            })
+        ]
+        [ ("a/b/bonfire", CloudContentChange CloudFileInfo
+            { cfHash = "hash3"
+            , cfLength = 20
+            , cfModTime = 100
+            , cfVersion = VersionId "99"
+            })
+        ]
 
     check "invalid list for server tail add" 
-            [ ("a/b/bar", CloudFileInfo
-                { cfHash = "hash1"
-                , cfLength = 50
-                , cfModTime = 10
-                , cfVersion = VersionId "99"
-                })
-            , ("a/b/c/foo", CloudFileInfo
-                { cfHash = "hash0"
-                , cfLength = 10
-                , cfModTime = 1
-                , cfVersion = VersionId "99"
-                })
-            , ("a/b/delta", CloudFileInfo
-                { cfHash = "hash14"
-                , cfLength = 20
-                , cfModTime = 101
-                , cfVersion = VersionId "99"
-                })
-            ]
-            [ ("a/b/delta", CloudContentChange CloudFileInfo
-                { cfHash = "hash14"
-                , cfLength = 20
-                , cfModTime = 101
-                , cfVersion = VersionId "99"
-                })
-            ]
+        [ ("a/b/bar", CloudFile CloudFileInfo
+            { cfHash = "hash1"
+            , cfLength = 50
+            , cfModTime = 10
+            , cfVersion = VersionId "99"
+            })
+        , ("a/b/c/foo", CloudFile CloudFileInfo
+            { cfHash = "hash0"
+            , cfLength = 10
+            , cfModTime = 1
+            , cfVersion = VersionId "99"
+            })
+        , ("a/b/delta", CloudFile CloudFileInfo
+            { cfHash = "hash14"
+            , cfLength = 20
+            , cfModTime = 101
+            , cfVersion = VersionId "99"
+            })
+        ]
+        [ ("a/b/delta", CloudContentChange CloudFileInfo
+            { cfHash = "hash14"
+            , cfLength = 20
+            , cfModTime = 101
+            , cfVersion = VersionId "99"
+            })
+        ]
 
     check "invalid list for server edit" 
-            [ ("a/b/bar", CloudFileInfo
-                { cfHash = "hash1"
-                , cfLength = 50
-                , cfModTime = 10
-                , cfVersion = VersionId "99"
-                })
-            , ("a/b/c/foo", CloudFileInfo
-                { cfHash = "hash10"
-                , cfLength = 10
-                , cfModTime = 17
-                , cfVersion = VersionId "99"
-                })
-            ]
-            [ ("a/b/c/foo", CloudContentChange CloudFileInfo
-                { cfHash = "hash10"
-                , cfLength = 10
-                , cfModTime = 17
-                , cfVersion = VersionId "99"
-                })
-            ]
+        [ ("a/b/bar", CloudFile CloudFileInfo
+            { cfHash = "hash1"
+            , cfLength = 50
+            , cfModTime = 10
+            , cfVersion = VersionId "99"
+            })
+        , ("a/b/c/foo", CloudFile CloudFileInfo
+            { cfHash = "hash10"
+            , cfLength = 10
+            , cfModTime = 17
+            , cfVersion = VersionId "99"
+            })
+        ]
+        [ ("a/b/c/foo", CloudContentChange CloudFileInfo
+            { cfHash = "hash10"
+            , cfLength = 10
+            , cfModTime = 17
+            , cfVersion = VersionId "99"
+            })
+        ]
 
     check "invalid list for server metadata change" 
-            [ ("a/b/bar", CloudFileInfo
-                { cfHash = "hash1"
-                , cfLength = 50
-                , cfModTime = 10
-                , cfVersion = VersionId "99"
-                })
-            , ("a/b/c/foo", CloudFileInfo
-                { cfHash = "hash0"
-                , cfLength = 10
-                , cfModTime = 11
-                , cfVersion = VersionId "99"
-                })
-            ]
-            [ ("a/b/c/foo", CloudMetadataChange CloudFileInfo
-                { cfHash = "hash0"
-                , cfLength = 10
-                , cfModTime = 11
-                , cfVersion = VersionId "99"
-                })
-            ]
+        [ ("a/b/bar", CloudFile CloudFileInfo
+            { cfHash = "hash1"
+            , cfLength = 50
+            , cfModTime = 10
+            , cfVersion = VersionId "99"
+            })
+        , ("a/b/c/foo", CloudFile CloudFileInfo
+            { cfHash = "hash0"
+            , cfLength = 10
+            , cfModTime = 11
+            , cfVersion = VersionId "99"
+            })
+        ]
+        [ ("a/b/c/foo", CloudMetadataChange CloudFileInfo
+            { cfHash = "hash0"
+            , cfLength = 10
+            , cfModTime = 11
+            , cfVersion = VersionId "99"
+            })
+        ]

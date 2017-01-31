@@ -1,7 +1,8 @@
-{-# Language RecordWildCards #-}
+{-# Language LambdaCase, RecordWildCards #-}
 module PrivateCloud.Sync where
 
 import Control.Monad
+import Data.Maybe
 import Data.Time.Clock.POSIX
 import System.FilePath
 import System.Log.Logger
@@ -43,7 +44,6 @@ logLocalMetadataChange :: FilePath -> POSIXTime -> POSIXTime -> IO ()
 logLocalMetadataChange file oldTs newTs =
     noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
-
 
 logServerNew :: (Show a, Integral a) => FilePath -> a -> IO ()
 logServerNew file size = do
@@ -118,44 +118,69 @@ getLocalChanges root locals@((lname, linfo) : ls) dbs@((dbname, dbinfo) : ds) =
                     rest <- getLocalChanges root ls ds
                     return $ (lname, upd) : rest
 
-getServerChanges :: [(FilePath, DbFileInfo)] -> [(FilePath, CloudFileInfo)] -> IO [(FilePath, CloudFileUpdate)]
-getServerChanges [] [] = return []
--- handle new files
-getServerChanges [] srvs = forM srvs $ \(filename, info) -> do
-    logServerNew filename (cfLength info)
-    return (filename, CloudContentChange info)
--- handle deleted files
-getServerChanges dbs [] = forM dbs $ \(filename, _) -> do
+zipLists :: Ord f => [(f, a)] -> [(f, b)] -> [(f, Maybe a, Maybe b)]
+zipLists [] [] = []
+zipLists as [] = map (\(f, a) -> (f, Just a, Nothing)) as
+zipLists [] bs = map (\(f, b) -> (f, Nothing, Just b)) bs
+zipLists as@(a : as') bs@(b : bs') = case compare (fst a) (fst b) of
+    EQ -> (fst a, Just $ snd a, Just $ snd b) : zipLists as' bs'
+    LT -> (fst a, Just $ snd a, Nothing) : zipLists as' bs
+    GT -> (fst b, Nothing, Just $ snd b) : zipLists as bs'
+
+getServerChanges :: [(FilePath, DbFileInfo)] -> [(FilePath, CloudFileStatus)] -> IO [(FilePath, CloudFileUpdate)]
+getServerChanges = getServerChanges' $ \filename -> do
+    -- file deleted on server
     logServerDelete filename
-    return (filename, CloudDelete)
-getServerChanges dbs@((dbname, dbinfo) : ds) srvs@((sname, sinfo) : ss) =
-    case compare dbname sname of
-        GT -> do    -- new file added
-                logServerNew sname (cfLength sinfo)
-                rest <- getServerChanges dbs ss
-                return $ (sname, CloudContentChange sinfo) : rest
-        LT -> do    -- file deleted
-                logServerDelete dbname
-                rest <- getServerChanges ds srvs
-                return $ (dbname, CloudDelete) : rest
-        EQ -> do
-                infoM syncLoggerName $ "#CHKSRV #file " ++ dbname
-                if dfLength dbinfo == cfLength sinfo
-                        && dfModTime dbinfo == cfModTime sinfo
-                        && dfHash dbinfo == cfHash sinfo
-                    then getServerChanges ds ss     -- no changes
-                    else do
-                        upd <- if dfHash dbinfo == cfHash sinfo
-                            then do
-                                when (dfLength dbinfo /= cfLength sinfo)
-                                    $ criticalM syncLoggerName
-                                    $ "file size changed but hash remains the same: "
-                                        ++ dbname ++ " " ++ show dbinfo
-                                        ++ " " ++ show sinfo
-                                logServerMetadataChange dbname (dfModTime dbinfo) (cfModTime sinfo)
-                                return $ CloudMetadataChange sinfo
-                            else do
-                                logServerChange dbname dbinfo sinfo
-                                return $ CloudContentChange sinfo
-                        rest <- getServerChanges ds ss
-                        return $ (sname, upd) : rest
+    return $ Just (filename, CloudDelete)
+
+getRecentServerChanges :: [(FilePath, DbFileInfo)] -> [(FilePath, CloudFileStatus)] -> IO [(FilePath, CloudFileUpdate)]
+getRecentServerChanges = getServerChanges' $
+    -- file was not updated recently
+    -- changes (if any missed) will be picked up by next full check
+    const (return Nothing)
+
+getServerChanges' :: (FilePath -> IO (Maybe (FilePath, CloudFileUpdate))) -> [(FilePath, DbFileInfo)] -> [(FilePath, CloudFileStatus)] -> IO [(FilePath, CloudFileUpdate)]
+getServerChanges' func dbfiles srvfiles = do
+    let files = zipLists dbfiles srvfiles
+    changes <- forM files $ \case
+        (_, Nothing, Nothing) -> do
+            -- should never happen
+            criticalM syncLoggerName $ "internal error in sync: two Nothings in zip " ++ show files
+            error "internal error"
+        (filename, Nothing, Just (CloudFile info)) -> do
+            -- new file on server
+            logServerNew filename (cfLength info)
+            return $ Just (filename, CloudContentChange info)
+        (_, Nothing, Just CloudDeleteMarker) ->
+            -- file already deleted locally
+            return Nothing
+        (filename, Just _, Nothing) ->
+            -- see calling function
+            func filename
+        (filename, Just _, Just CloudDeleteMarker) -> do
+            -- file deleted on server
+            logServerDelete filename
+            return $ Just (filename, CloudDelete)
+        (filename, Just localinfo, Just (CloudFile cloudinfo))
+            | dfLength localinfo == cfLength cloudinfo
+                && dfModTime localinfo == cfModTime cloudinfo
+                && dfHash localinfo == cfHash cloudinfo -> do
+            -- no change
+            infoM syncLoggerName $ "#NOCHANGE_SERVER #file " ++ filename
+            return Nothing
+        (filename, Just localinfo, Just (CloudFile cloudinfo))
+            | dfHash localinfo == cfHash cloudinfo -> do
+            -- medatada update
+            when (dfLength localinfo /= cfLength cloudinfo)
+                $ criticalM syncLoggerName
+                $ "file size changed but hash remains the same: "
+                    ++ filename ++ " " ++ show localinfo
+                    ++ " " ++ show cloudinfo
+            logServerMetadataChange filename (dfModTime localinfo) (cfModTime cloudinfo)
+            return $ Just (filename, CloudMetadataChange cloudinfo)
+        (filename, Just localinfo, Just (CloudFile cloudinfo)) -> do
+            -- file changed
+            logServerChange filename localinfo cloudinfo
+            return $ Just (filename, CloudContentChange cloudinfo)
+
+    return $ catMaybes changes

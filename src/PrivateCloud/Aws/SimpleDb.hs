@@ -10,7 +10,9 @@ import Data.Function
 import Data.List
 import Data.Maybe
 import Data.Monoid
+import Data.Text.Buildable
 import Data.Text.Format
+import Data.Time.Clock.POSIX
 import Data.Word
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -25,12 +27,28 @@ uploadFileInfo CloudInfo{..} file CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
-    let timestr = format "{}" (Only $ left 14 '0' cfModTime)
+    time <- getPOSIXTime
+    let timestr = printInt $ left 14 '0' (round time :: Word64)
     let command = putAttributes (T.pack file)
             [ replaceAttribute "hash" (T.decodeUtf8 cfHash)
-            , replaceAttribute "size" (T.pack $ show cfLength)
-            , replaceAttribute "mtime" (TL.toStrict timestr)
+            , replaceAttribute "size" (printInt cfLength)
+            , replaceAttribute "mtime" (printInt (round cfModTime :: Word64))
             , replaceAttribute "version" (versionToText cfVersion)
+            , replaceAttribute "recordmtime" timestr
+            ]
+            ciDomain
+    void $ memoryAws ciConfig defServiceConfig ciManager command
+
+uploadDeleteMarker :: CloudInfo -> FilePath -> IO ()
+uploadDeleteMarker CloudInfo{..} file = do
+    time <- getPOSIXTime
+    let timestr = printInt $ left 14 '0' (round time :: Word64)
+    let command = putAttributes (T.pack file)
+            [ replaceAttribute "hash" T.empty
+            , replaceAttribute "size" T.empty
+            , replaceAttribute "mtime" T.empty
+            , replaceAttribute "version" T.empty
+            , replaceAttribute "recordmtime" timestr
             ]
             ciDomain
     void $ memoryAws ciConfig defServiceConfig ciManager command
@@ -56,9 +74,26 @@ removeFileInfo CloudInfo{..} file =
     void $ memoryAws ciConfig defServiceConfig ciManager $
         deleteAttributes (T.pack file) [] ciDomain
 
-getServerFiles :: CloudInfo -> IO [(FilePath, CloudFileInfo)]
-getServerFiles CloudInfo{..} = do
-    let query = (select $ "select * from " <> ciDomain) { sConsistentRead = True }
+getServerFiles :: CloudInfo -> IO [(FilePath, CloudFileStatus)]
+getServerFiles config = getServerFiles' config ("select * from " <> ciDomain config)
+
+-- get files updated in a last hour
+getRecentServerFiles :: CloudInfo -> IO [(FilePath, CloudFileStatus)]
+getRecentServerFiles config = do
+    time <- getPOSIXTime
+    let recentTime = time - recentAge
+    let timestr = printInt $ left 14 '0' (round recentTime :: Word64)
+    getServerFiles' config $
+        "select * from " <> ciDomain config <>
+        " where recordmtime > '" <> timestr <> "'"
+    where
+    recentAge :: POSIXTime
+    recentAge = 3600
+
+
+getServerFiles' :: CloudInfo -> T.Text -> IO [(FilePath, CloudFileStatus)]
+getServerFiles' CloudInfo{..} queryText = do
+    let query = (select queryText) { sConsistentRead = True }
     items <- runConduitRes $
         awsIteratedList ciConfig defServiceConfig ciManager query
             .| sinkList
@@ -70,15 +105,21 @@ getServerFiles CloudInfo{..} = do
     getAttr name = fmap attributeData . find (\a -> attributeName a == name)
     conv Item{..} = do
         filehash <- getAttr "hash" itemData
-        size <- readDec =<< getAttr "size" itemData
-        mtime <- readDec =<< getAttr "mtime" itemData
-        version <- getAttr "version" itemData
-        return
-            ( T.unpack itemName
-            , CloudFileInfo
-                { cfLength = size
-                , cfModTime = realToFrac (mtime :: Word64)
-                , cfHash = T.encodeUtf8 filehash
-                , cfVersion = VersionId version
-                }
-            )
+        if T.null filehash
+            then return ( T.unpack itemName, CloudDeleteMarker )
+            else do
+                size <- readDec =<< getAttr "size" itemData
+                mtime <- readDec =<< getAttr "mtime" itemData
+                version <- getAttr "version" itemData
+                return
+                    ( T.unpack itemName
+                    , CloudFile CloudFileInfo
+                        { cfLength = size
+                        , cfModTime = realToFrac (mtime :: Word64)
+                        , cfHash = T.encodeUtf8 filehash
+                        , cfVersion = VersionId version
+                        }
+                    )
+
+printInt :: Buildable t => t -> T.Text
+printInt = TL.toStrict . format "{}" . Only

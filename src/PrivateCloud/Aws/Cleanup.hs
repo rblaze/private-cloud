@@ -5,7 +5,6 @@ import Aws.Aws
 import Aws.Core
 import Aws.S3
 import Conduit
-import Control.Arrow
 import Control.Monad
 import Control.Monad.Trans.State.Strict
 import Data.Maybe
@@ -36,7 +35,9 @@ deleteOldVersions :: CloudInfo -> IO ()
 deleteOldVersions config@CloudInfo{..} = do
     infoM s3LoggerName "#S3CLEANUP_START"
     filelist <- getServerFiles config
-    let knownVersions = HM.fromList $ map (T.pack *** cfVersion) filelist
+    let isCloudFile (_, CloudDeleteMarker) = Nothing
+        isCloudFile (f, CloudFile i) = Just (T.pack f, cfVersion i)
+    let knownVersions = HM.fromList $ mapMaybe isCloudFile filelist
     let command = getBucketObjectVersions ciBucket
 
     -- delete all versions older than current one
