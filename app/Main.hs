@@ -52,6 +52,7 @@ main = do
                 syncRecentServerChanges rootDir conn config
                 -- FIXME run cleanup rarely
                 deleteOldVersions config
+                deleteOldDbRecords config
 
 syncLocalChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
 syncLocalChanges rootDir conn config = do

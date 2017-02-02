@@ -1,14 +1,17 @@
-{-# Language RecordWildCards, MultiWayIf #-}
+{-# Language OverloadedStrings, RecordWildCards, MultiWayIf #-}
 module PrivateCloud.Aws.Cleanup where
 
 import Aws.Aws
 import Aws.Core
 import Aws.S3
+import Aws.SimpleDb
 import Conduit
 import Control.Monad
 import Control.Monad.Trans.State.Strict
 import Data.Maybe
+import Data.Monoid
 import Data.Time.Clock
+import Data.Time.Clock.POSIX
 import System.Log.Logger
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
@@ -70,10 +73,10 @@ deleteOldVersions config@CloudInfo{..} = do
                 let isCurrent = version == dbVersion
                 logInfo $ "#S3CLEANUP_KNOWN #file " ++ show key ++ " #version " ++ show version ++ " #isCurrent " ++ show isCurrent
                 put CleanupState
-                        { currentKey = key
-                        , storedVersion = dbVersion
-                        , seenStoredVersion = isCurrent
-                        }
+                    { currentKey = key
+                    , storedVersion = dbVersion
+                    , seenStoredVersion = isCurrent
+                    }
                 if isCurrent
                     then return False
                     else do
@@ -92,24 +95,50 @@ deleteOldVersions config@CloudInfo{..} = do
                 then checkCurrentFile st info
                 else checkNextFile info
 
-    let baseState = CleanupState
-            { currentKey = T.empty
-            , storedVersion = noVersion
-            , seenStoredVersion = False
-            }
     runResourceT $ flip evalStateT baseState $ runConduit $ awsIteratedList'
-            (\r -> readResponseIO =<< lift (aws ciConfig defServiceConfig ciManager r))
+            (\r -> lift (pureAws ciConfig defServiceConfig ciManager r))
             command
         .| filterMC checkVersion
         .| mapM_C deleteVersion
     logInfo "#S3CLEANUP_END"
     where
-    deleteVersion info = liftIO $ do
+    baseState = CleanupState
+                { currentKey = T.empty
+                , storedVersion = noVersion
+                , seenStoredVersion = False
+                }
+    deleteVersion info = do
         let key = oviKey info
         let version = oviVersionId info
         let delCommand = deleteObjectVersion ciBucket key version
-        noticeM s3LoggerName $ "#S3DELETEVERSION #file " ++ show key
+        logNotice $ "#S3DELETEVERSION #file " ++ show key
             ++ " #version " ++ show version
-        void $ memoryAws ciConfig defServiceConfig ciManager delCommand
-    logInfo :: MonadIO m => String -> m ()
-    logInfo = liftIO . infoM s3LoggerName
+        void $ lift $ pureAws ciConfig defServiceConfig ciManager delCommand
+
+deleteOldDbRecords :: CloudInfo -> IO ()
+deleteOldDbRecords CloudInfo{..} = do
+    logInfo "#DBCLEANUP_START"
+    time <- getPOSIXTime
+    let timestr = printTime $ time - maxUnusedTime
+    let querystr = "select recordmtime from " <> ciDomain <>
+                " where hash = '' intersection recordmtime < '" <> timestr <> "'"
+    let query = (select querystr) { sConsistentRead = True }
+    runConduitRes $
+        awsIteratedList ciConfig defServiceConfig ciManager query
+        .| mapM_C deleteDbRecord
+    logInfo "#DBCLEANUP_END"
+    where
+    deleteDbRecord Item{..} = case itemData of
+        [ ForAttribute "recordmtime" mtime ] -> do
+            logNotice $ "#S3DELETERECORD #file " ++ show itemName
+            void $ pureAws ciConfig defServiceConfig ciManager $
+                (deleteAttributes itemName [] ciDomain)
+                { daExpected = [ expectedValue "recordmtime" mtime ]
+                }
+        _ -> liftIO $ criticalM s3LoggerName $ "invalid attribute list " ++ show itemData
+
+logInfo :: MonadIO m => String -> m ()
+logInfo = liftIO . infoM s3LoggerName
+
+logNotice :: MonadIO m => String -> m ()
+logNotice = liftIO . noticeM s3LoggerName

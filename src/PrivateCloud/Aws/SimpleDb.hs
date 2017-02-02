@@ -27,8 +27,7 @@ uploadFileInfo CloudInfo{..} file CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
-    time <- getPOSIXTime
-    let timestr = printInt $ left 14 '0' (round time :: Word64)
+    timestr <- printTime <$> getPOSIXTime
     let command = putAttributes (T.pack file)
             [ replaceAttribute "hash" (T.decodeUtf8 cfHash)
             , replaceAttribute "size" (printInt cfLength)
@@ -41,8 +40,7 @@ uploadFileInfo CloudInfo{..} file CloudFileInfo{..} = do
 
 uploadDeleteMarker :: CloudInfo -> FilePath -> IO ()
 uploadDeleteMarker CloudInfo{..} file = do
-    time <- getPOSIXTime
-    let timestr = printInt $ left 14 '0' (round time :: Word64)
+    timestr <- printTime <$> getPOSIXTime
     let command = putAttributes (T.pack file)
             [ replaceAttribute "hash" T.empty
             , replaceAttribute "size" T.empty
@@ -60,11 +58,11 @@ uploadFileMetadata CloudInfo{..} file DbFileInfo{..} = do
 -- XXX think about versioning? Maybe use protobufs or bond.
     let command = PutAttributes
             { paItemName = T.pack file
-            , paAttributes = [ replaceAttribute "mtime" (T.pack $ show dfModTime) ]
-            , paExpected =
-                [ expectedValue "hash" (T.decodeUtf8 dfHash)
-                , expectedValue "size" (T.pack $ show dfLength)
+            , paAttributes =
+                [ replaceAttribute "mtime" (printInt (round dfModTime :: Word64))
+                , replaceAttribute "size" (T.pack $ show dfLength)
                 ]
+            , paExpected = [ expectedValue "hash" (T.decodeUtf8 dfHash) ]
             , paDomainName = ciDomain
             }
     void $ memoryAws ciConfig defServiceConfig ciManager command
@@ -82,7 +80,7 @@ getRecentServerFiles :: CloudInfo -> IO [(FilePath, CloudFileStatus)]
 getRecentServerFiles config = do
     time <- getPOSIXTime
     let recentTime = time - recentAge
-    let timestr = printInt $ left 14 '0' (round recentTime :: Word64)
+    let timestr = printTime recentTime
     getServerFiles' config $
         "select * from " <> ciDomain config <>
         " where recordmtime > '" <> timestr <> "'"
@@ -99,6 +97,7 @@ getServerFiles' CloudInfo{..} queryText = do
             .| sinkList
     return $ sortBy (compare `on` fst) $ mapMaybe conv items
     where
+    -- FIXME report parse errors
     readDec t = case T.decimal t of
                     Right (v, "") -> Just v
                     _ -> Nothing
@@ -123,3 +122,6 @@ getServerFiles' CloudInfo{..} queryText = do
 
 printInt :: Buildable t => t -> T.Text
 printInt = TL.toStrict . format "{}" . Only
+
+printTime :: POSIXTime -> T.Text
+printTime time = printInt $ left 14 '0' (round time :: Word64)
