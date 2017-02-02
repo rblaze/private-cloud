@@ -184,3 +184,24 @@ getServerChanges' func dbfiles srvfiles = do
             return $ Just (filename, CloudContentChange cloudinfo)
 
     return $ catMaybes changes
+
+zipLists3 :: Ord f => [(f, a)] -> [(f, b)] -> [(f, c)] -> [(f, Maybe a, Maybe b, Maybe c)]
+zipLists3 [] [] [] = []
+zipLists3 as [] [] = map (\(f, a) -> (f, Just a, Nothing, Nothing)) as
+zipLists3 [] bs [] = map (\(f, b) -> (f, Nothing, Just b, Nothing)) bs
+zipLists3 [] [] cs = map (\(f, c) -> (f, Nothing, Nothing, Just c)) cs
+zipLists3 as bs cs = (firstName, aval, bval, cval) : zipLists3 as' bs' cs'
+    where
+    ha = headMay as
+    hb = headMay bs
+    hc = headMay cs
+    firstName = minimum $ catMaybes [fst <$> ha, fst <$> hb, fst <$> hc]
+    getVal Nothing xs = (Nothing, xs)
+    getVal (Just (f, v)) xs
+        | f == firstName = (Just v, tail xs)
+        | otherwise = (Nothing, xs)
+    (aval, as') = getVal ha as
+    (bval, bs') = getVal hb bs
+    (cval, cs') = getVal hc cs
+    headMay [] = Nothing
+    headMay (x:_) = Just x

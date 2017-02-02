@@ -24,7 +24,10 @@ main = defaultMain tests
 
 tests :: TestTree
 tests = testGroup "PrivateCloud tests"
-    [ testGroup "DirTree tests"
+    [ testGroup "Helper function tests"
+        [ testCase "zipLists3" testZipLists3
+        ]
+    , testGroup "DirTree tests"
         [ testCase "makeTree" testMakeTree
         , testCase "unrollTreeFiles" testUnrollTreeFiles
         ]
@@ -469,3 +472,34 @@ testGetServerChanges = do
             , cfVersion = VersionId "99"
             })
         ]
+
+testZipLists3 :: Assertion
+testZipLists3 = do
+    assertEqual "test1"
+        [ (1, Just "1a", Just "1b", Nothing)
+        , (2, Just "2a", Nothing, Nothing)
+        , (3, Nothing, Just "3b", Nothing)
+        , (4, Nothing, Nothing, Just "4c")
+        , (5, Just "5a", Just "5b", Just "5c")
+        , (6, Just "6a", Nothing, Just "6c")
+        , (8, Nothing, Just "8b", Just "8c")
+        , (9, Nothing, Nothing, Just "9c")
+        ]
+        (zipLists3
+            [ (1 :: Int, "1a" :: String)
+            , (2, "2a")
+            , (5, "5a")
+            , (6, "6a")
+            ]
+            [ (1, "1b" :: String)
+            , (3, "3b")
+            , (5, "5b")
+            , (8, "8b")
+            ]
+            [ (4, "4c" :: String)
+            , (5, "5c")
+            , (6, "6c")
+            , (8, "8c")
+            , (9, "9c")
+            ]
+        )
