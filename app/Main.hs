@@ -1,3 +1,4 @@
+{-# Language LambdaCase, RecordWildCards #-}
 module Main where
 
 import Control.Concurrent
@@ -16,6 +17,7 @@ import PrivateCloud.Aws
 import PrivateCloud.Aws.Cleanup
 import PrivateCloud.Aws.S3
 import PrivateCloud.Aws.SimpleDb
+import PrivateCloud.Crypto
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
@@ -38,87 +40,82 @@ main = do
 
     withDatabase (rootDir </> dbName) $ \conn -> do
         noticeM mainLoggerName "#DBOPEN"
-        handleAny
-            (\e -> errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
-            do
-                syncLocalChanges rootDir conn config
-                syncAllServerChanges rootDir conn config
 
         forever $ handleAny
             (\e -> errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
             do
-                threadDelay 10000000
-                syncLocalChanges rootDir conn config
-                syncRecentServerChanges rootDir conn config
+                syncChanges rootDir conn config
                 -- FIXME run cleanup rarely
-                deleteOldVersions config
-                deleteOldDbRecords config
+--                deleteOldVersions config
+--                deleteOldDbRecords config
+                threadDelay 10000000
 
-syncLocalChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncLocalChanges rootDir conn config = do
+syncChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
+syncChanges rootDir conn config = do
     localFiles <- unrollTreeFiles <$> makeTree rootDir
     dbFiles <- getFileList conn
-    localDiff <- getLocalChanges rootDir localFiles dbFiles
+    serverFiles <- getServerFiles config
 
-    forM_ localDiff $ \(f, i) -> case i of
-        LocalContentChange info -> do
-            body <- BL.readFile (rootDir </> f)
-            version <- uploadFile config f body
-            uploadFileInfo config f
-                CloudFileInfo
-                    { cfHash = dfHash info
-                    , cfModTime = dfModTime info
-                    , cfLength = dfLength info
+    updates <- getFileChanges rootDir localFiles dbFiles serverFiles
+    print updates
+
+    forM_ updates $ \case
+        ResolveConflict{..} ->
+            error "Aaaaaaa!!!!!!"
+        UpdateCloudFile{..} -> do
+            body <- BL.readFile (rootDir </> faFilename)
+            version <- uploadFile config faFilename body
+            -- FIXME return CloudFileInfo from uploadFile
+            hash <- getFileHash (rootDir </> faFilename)
+            let cloudinfo = CloudFileInfo
+                    { cfHash = hash
+                    , cfModTime = lfModTime faLocalInfo
+                    , cfLength = lfLength faLocalInfo
                     , cfVersion = version
                     }
-            putFileInfo conn f info
-        LocalMetadataChange info -> do
-            uploadFileMetadata config f info
-            putFileInfo conn f info
-        LocalDelete -> do
-            deleteFile config f
-            uploadDeleteMarker config f
-            deleteFileInfo conn f
-
-syncAllServerChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncAllServerChanges rootDir conn config = do
-    dbFiles <- getFileList conn
-    serverFiles <- getServerFiles config
-    serverDiff <- getServerChanges dbFiles serverFiles
-    syncServerChanges rootDir conn config serverDiff
-
-syncRecentServerChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncRecentServerChanges rootDir conn config = do
-    dbFiles <- getFileList conn
-    serverFiles <- getRecentServerFiles config
-    serverDiff <- getRecentServerChanges dbFiles serverFiles
-    syncServerChanges rootDir conn config serverDiff
-
-syncServerChanges :: FilePath -> DbInfo -> CloudInfo -> [(FilePath, CloudFileUpdate)] -> IO ()
-syncServerChanges rootDir conn config serverDiff = do
-    forM_ serverDiff $ \(f, i) -> case i of
-        CloudContentChange info -> do
-            body <- downloadFile config f (cfVersion info)
-            createDirectoryIfMissing True (dropFileName $ rootDir </> f)
-            BL.writeFile (rootDir </> f) body
-            setFileTimes (rootDir </> f) (posix2epoch $ cfModTime info) (posix2epoch $ cfModTime info)
-            putFileInfo conn f
-                DbFileInfo
-                    { dfHash = cfHash info
-                    , dfLength = cfLength info
-                    , dfModTime = cfModTime info
+            uploadFileInfo config faFilename cloudinfo
+            let dbinfo = DbFileInfo
+                    { dfHash = hash
+                    , dfModTime = lfModTime faLocalInfo
+                    , dfLength = lfLength faLocalInfo
                     }
-        CloudMetadataChange info -> do
-            setFileTimes (rootDir </> f) (posix2epoch $ cfModTime info) (posix2epoch $ cfModTime info)
-            putFileInfo conn f
-                DbFileInfo
-                    { dfHash = cfHash info
-                    , dfLength = cfLength info
-                    , dfModTime = cfModTime info
+            putFileInfo conn faFilename dbinfo
+        UpdateCloudMetadata{..} -> do
+            let dbinfo = DbFileInfo
+                    { dfHash = faExpectedHash
+                    , dfModTime = lfModTime faLocalInfo
+                    , dfLength = lfLength faLocalInfo
                     }
-        CloudDelete -> do
-            removeFile (rootDir </> f)
-            deleteFileInfo conn f
+            uploadFileMetadata config faFilename dbinfo
+            putFileInfo conn faFilename dbinfo
+        DeleteCloudFile{..} -> do
+            deleteFile config faFilename
+            uploadDeleteMarker config faFilename
+            deleteFileInfo conn faFilename
+        UpdateLocalFile{..} -> do
+            body <- downloadFile config faFilename (cfVersion faCloudInfo)
+            createDirectoryIfMissing True (dropFileName $ rootDir </> faFilename)
+            BL.writeFile (rootDir </> faFilename) body
+            setFileTimes (rootDir </> faFilename) (posix2epoch $ cfModTime faCloudInfo) (posix2epoch $ cfModTime faCloudInfo)
+            putFileInfo conn faFilename
+                DbFileInfo
+                    { dfHash = cfHash faCloudInfo
+                    , dfLength = cfLength faCloudInfo
+                    , dfModTime = cfModTime faCloudInfo
+                    }
+        UpdateLocalMetadata{..} -> do
+            setFileTimes (rootDir </> faFilename)
+                (posix2epoch $ cfModTime faCloudInfo)
+                (posix2epoch $ cfModTime faCloudInfo)
+            putFileInfo conn faFilename
+                DbFileInfo
+                    { dfHash = cfHash faCloudInfo
+                    , dfLength = cfLength faCloudInfo
+                    , dfModTime = cfModTime faCloudInfo
+                    }
+        DeleteLocalFile{..} -> do
+            removeFile (rootDir </> faFilename)
+            deleteFileInfo conn faFilename
     where
     posix2epoch :: POSIXTime -> EpochTime
     posix2epoch = CTime . round

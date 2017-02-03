@@ -9,9 +9,7 @@ import System.Posix.Files
 
 import PrivateCloud.FileInfo
 
-type FileList = [(FilePath, LocalFileInfo)]
-
-unrollTreeFiles :: DirTree (Maybe LocalFileInfo) -> FileList
+unrollTreeFiles :: DirTree (Maybe LocalFileInfo) -> LocalFileList
 unrollTreeFiles tree = filter (\(f, _) -> f /= dbName) $ go "" tree{name = ""}
     where
     go base File{name, file = Just f} = [(base </> name, f)]

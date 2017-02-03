@@ -15,12 +15,16 @@ data LocalFileInfo = LocalFileInfo
     }
     deriving (Eq, Show)
 
+type LocalFileList = [(FilePath, LocalFileInfo)]
+
 data DbFileInfo = DbFileInfo
     { dfHash :: BS.ByteString
     , dfLength :: Word64
     , dfModTime :: POSIXTime
     }
     deriving (Eq, Show)
+
+type DbFileList = [(FilePath, DbFileInfo)]
 
 data CloudFileInfo = CloudFileInfo
     { cfHash :: BS.ByteString
@@ -34,3 +38,5 @@ data CloudFileStatus
     = CloudFile CloudFileInfo
     | CloudDeleteMarker
     deriving Show
+
+type CloudFileList = [(FilePath, CloudFileStatus)]

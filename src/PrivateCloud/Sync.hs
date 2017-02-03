@@ -1,43 +1,64 @@
-{-# Language LambdaCase, RecordWildCards #-}
+{-# Language MultiWayIf, LambdaCase, RecordWildCards #-}
 module PrivateCloud.Sync where
 
 import Control.Monad
 import Data.Maybe
 import Data.Time.Clock.POSIX
+import Data.Word
 import System.FilePath
 import System.Log.Logger
+import qualified Data.ByteString as BS
 
 import PrivateCloud.Crypto
-import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
-
-data LocalFileUpdate
-    = LocalContentChange DbFileInfo
-    | LocalMetadataChange DbFileInfo
-    | LocalDelete
-    deriving (Show, Eq)
-
-data CloudFileUpdate
-    = CloudContentChange CloudFileInfo
-    | CloudMetadataChange CloudFileInfo
-    | CloudDelete
-    deriving (Show, Eq)
 
 syncLoggerName :: String
 syncLoggerName = "PrivateCloud.Sync"
 
-logLocalNew :: (Show a, Integral a) => FilePath -> a -> IO ()
+data FileAction
+    = ResolveConflict
+        { faFilename :: FilePath
+        , faCloudInfo :: CloudFileInfo
+        }
+    | UpdateCloudFile
+        { faFilename :: FilePath
+        , faLocalInfo :: LocalFileInfo
+        }
+    | UpdateCloudMetadata
+        { faFilename :: FilePath
+        , faLocalInfo :: LocalFileInfo
+        , faExpectedHash :: BS.ByteString
+        }
+    | DeleteCloudFile
+        { faFilename :: FilePath
+        }
+    | UpdateLocalFile
+        { faFilename :: FilePath
+        , faCloudInfo :: CloudFileInfo
+        }
+    | UpdateLocalMetadata
+        { faFilename :: FilePath
+        , faCloudInfo :: CloudFileInfo
+        }
+    | DeleteLocalFile
+        { faFilename :: FilePath
+        }
+    deriving (Show, Eq)
+
+logConflict :: FilePath -> Word64 -> Word64 -> IO ()
+logConflict file localSize cloudSize = do
+    noticeM syncLoggerName $ "#CONFLICT #file " ++ file
+        ++ " #localsize " ++ show localSize ++ " #serversize " ++ show cloudSize
+
+logLocalNew :: FilePath -> Word64 -> IO ()
 logLocalNew file size = do
-    let _ = fromIntegral size :: Int      -- suppress "unused constraint" warning
     noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ file ++ " #size " ++ show size
 
 logLocalDelete :: FilePath -> IO ()
 logLocalDelete file = noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ file
 
-logLocalChange :: (Show a, Show b, Integral a, Integral b) => FilePath -> a -> b -> IO ()
+logLocalChange :: FilePath -> Word64 -> Word64 -> IO ()
 logLocalChange file oldSize newSize = do
-    let _ = fromIntegral oldSize :: Int
-    let _ = fromIntegral newSize :: Int
     noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
 logLocalMetadataChange :: FilePath -> POSIXTime -> POSIXTime -> IO ()
@@ -45,9 +66,8 @@ logLocalMetadataChange file oldTs newTs =
     noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
-logServerNew :: (Show a, Integral a) => FilePath -> a -> IO ()
+logServerNew :: FilePath -> Word64 -> IO ()
 logServerNew file size = do
-    let _ = fromIntegral size :: Int      -- suppress "unused constraint" warning
     noticeM syncLoggerName $ "#NEW_SERVER #file " ++ file ++ " #size " ++ show size
 
 logServerDelete :: FilePath -> IO ()
@@ -63,127 +83,6 @@ logServerMetadataChange :: FilePath -> POSIXTime -> POSIXTime -> IO ()
 logServerMetadataChange file oldTs newTs =
     noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
-
-getLocalChanges :: FilePath -> FileList -> [(FilePath, DbFileInfo)] -> IO [(FilePath, LocalFileUpdate)]
-getLocalChanges _ [] [] = return []
--- handle deleted files
-getLocalChanges _ [] dbs = forM dbs $ \(filename, _) -> do
-    logLocalDelete filename
-    return (filename, LocalDelete)
--- handle new files
-getLocalChanges root locals [] = forM locals $ \(filename, LocalFileInfo{..}) -> do
-    hash <- getFileHash (root </> filename)
-    logLocalNew filename lfLength
-    return (filename, LocalContentChange DbFileInfo
-        { dfHash = hash
-        , dfLength = fromIntegral lfLength
-        , dfModTime = lfModTime
-        })
-getLocalChanges root locals@((lname, linfo) : ls) dbs@((dbname, dbinfo) : ds) =
-    case compare lname dbname of
-        LT -> do    -- new file added
-                logLocalNew lname (lfLength linfo)
-                hash <- getFileHash (root </> lname)
-                rest <- getLocalChanges root ls dbs
-                let upd = DbFileInfo
-                        { dfHash = hash
-                        , dfLength = fromIntegral (lfLength linfo)
-                        , dfModTime = lfModTime linfo
-                        }
-                return $ (lname, LocalContentChange upd) : rest
-        GT -> do    -- file deleted
-                logLocalDelete dbname
-                rest <- getLocalChanges root locals ds
-                return $ (dbname, LocalDelete) : rest
-        EQ -> do
-                infoM syncLoggerName $ "#CHK #file " ++ lname
-                if lfLength linfo == fromIntegral (dfLength dbinfo)
-                    && lfModTime linfo == dfModTime dbinfo
-                then getLocalChanges root ls ds     -- no changes
-                else do
-                    hash <- getFileHash (root </> lname)
-                    upd <- if hash == dfHash dbinfo
-                            then do
-                                logLocalMetadataChange lname (dfModTime dbinfo) (lfModTime linfo)
-                                return $ LocalMetadataChange $ dbinfo
-                                    { dfModTime = lfModTime linfo
-                                    }
-                            else do
-                                logLocalChange lname (dfLength dbinfo) (lfLength linfo)
-                                return $ LocalContentChange DbFileInfo
-                                    { dfHash = hash
-                                    , dfLength = fromIntegral (lfLength linfo)
-                                    , dfModTime = lfModTime linfo
-                                    }
-                    rest <- getLocalChanges root ls ds
-                    return $ (lname, upd) : rest
-
-zipLists :: Ord f => [(f, a)] -> [(f, b)] -> [(f, Maybe a, Maybe b)]
-zipLists [] [] = []
-zipLists as [] = map (\(f, a) -> (f, Just a, Nothing)) as
-zipLists [] bs = map (\(f, b) -> (f, Nothing, Just b)) bs
-zipLists as@(a : as') bs@(b : bs') = case compare (fst a) (fst b) of
-    EQ -> (fst a, Just $ snd a, Just $ snd b) : zipLists as' bs'
-    LT -> (fst a, Just $ snd a, Nothing) : zipLists as' bs
-    GT -> (fst b, Nothing, Just $ snd b) : zipLists as bs'
-
-getServerChanges :: [(FilePath, DbFileInfo)] -> [(FilePath, CloudFileStatus)] -> IO [(FilePath, CloudFileUpdate)]
-getServerChanges = getServerChanges' $ \filename -> do
-    -- file deleted on server
-    logServerDelete filename
-    return $ Just (filename, CloudDelete)
-
-getRecentServerChanges :: [(FilePath, DbFileInfo)] -> [(FilePath, CloudFileStatus)] -> IO [(FilePath, CloudFileUpdate)]
-getRecentServerChanges = getServerChanges' $
-    -- file was not updated recently
-    -- changes (if any missed) will be picked up by next full check
-    const (return Nothing)
-
-getServerChanges' :: (FilePath -> IO (Maybe (FilePath, CloudFileUpdate))) -> [(FilePath, DbFileInfo)] -> [(FilePath, CloudFileStatus)] -> IO [(FilePath, CloudFileUpdate)]
-getServerChanges' func dbfiles srvfiles = do
-    let files = zipLists dbfiles srvfiles
-    changes <- forM files $ \case
-        (_, Nothing, Nothing) -> do
-            -- should never happen
-            criticalM syncLoggerName $ "internal error in sync: two Nothings in zip " ++ show files
-            error "internal error"
-        (filename, Nothing, Just (CloudFile info)) -> do
-            -- new file on server
-            logServerNew filename (cfLength info)
-            return $ Just (filename, CloudContentChange info)
-        (_, Nothing, Just CloudDeleteMarker) ->
-            -- file already deleted locally
-            return Nothing
-        (filename, Just _, Nothing) ->
-            -- see calling function
-            func filename
-        (filename, Just _, Just CloudDeleteMarker) -> do
-            -- file deleted on server
-            logServerDelete filename
-            return $ Just (filename, CloudDelete)
-        (filename, Just localinfo, Just (CloudFile cloudinfo))
-            | dfLength localinfo == cfLength cloudinfo
-                && dfModTime localinfo == cfModTime cloudinfo
-                && dfHash localinfo == cfHash cloudinfo -> do
-            -- no change
-            infoM syncLoggerName $ "#NOCHANGE_SERVER #file " ++ filename
-            return Nothing
-        (filename, Just localinfo, Just (CloudFile cloudinfo))
-            | dfHash localinfo == cfHash cloudinfo -> do
-            -- medatada update
-            when (dfLength localinfo /= cfLength cloudinfo)
-                $ criticalM syncLoggerName
-                $ "file size changed but hash remains the same: "
-                    ++ filename ++ " " ++ show localinfo
-                    ++ " " ++ show cloudinfo
-            logServerMetadataChange filename (dfModTime localinfo) (cfModTime cloudinfo)
-            return $ Just (filename, CloudMetadataChange cloudinfo)
-        (filename, Just localinfo, Just (CloudFile cloudinfo)) -> do
-            -- file changed
-            logServerChange filename localinfo cloudinfo
-            return $ Just (filename, CloudContentChange cloudinfo)
-
-    return $ catMaybes changes
 
 zipLists3 :: Ord f => [(f, a)] -> [(f, b)] -> [(f, c)] -> [(f, Maybe a, Maybe b, Maybe c)]
 zipLists3 [] [] [] = []
@@ -205,3 +104,141 @@ zipLists3 as bs cs = (firstName, aval, bval, cval) : zipLists3 as' bs' cs'
     (cval, cs') = getVal hc cs
     headMay [] = Nothing
     headMay (x:_) = Just x
+
+getFileChanges :: FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
+getFileChanges root localFiles dbFiles cloudFiles = do
+    changes <- forM files $ \case
+        (_, Nothing, Nothing, Nothing) -> do
+            -- should never happen
+            criticalM syncLoggerName $ "internal error in sync: two Nothings in zip " ++ show files
+            error "internal error"
+        (filename, Nothing, Nothing, Just (CloudFile cloudinfo)) -> do
+            -- server file added
+            let CloudFileInfo{..} = cloudinfo
+            logServerNew filename cfLength
+            return $ Just $ UpdateLocalFile filename cloudinfo
+        (_, Nothing, Nothing, Just CloudDeleteMarker) ->
+            -- server file added and deleted, effectively no change
+            return Nothing
+        (filename, Just localinfo@LocalFileInfo{..}, Nothing, Nothing) -> do
+            -- local file added
+            logLocalNew filename lfLength
+            return $ Just $ UpdateCloudFile filename localinfo
+        (filename, Just localinfo@LocalFileInfo{..}, Nothing, Just CloudDeleteMarker) -> do
+            -- local file added, server file added and deleted
+            -- uploading local file
+            logLocalNew filename lfLength
+            return $ Just $ UpdateCloudFile filename localinfo
+        (filename, Just localinfo@LocalFileInfo{..}, Nothing, Just (CloudFile cloudinfo)) -> do
+            -- local file added, server file added
+            -- check if files are the same
+            let CloudFileInfo{..} = cloudinfo
+            filesDiffer <- isLocalFileChanged filename lfLength cfLength cfHash
+            if filesDiffer
+                then do
+                    -- files differ
+                    logConflict filename lfLength cfLength
+                    return $ Just $ ResolveConflict filename cloudinfo
+                else
+                    -- somehow files are the same, maybe we just lost local db
+                    -- just set latest timestamp everywhere
+                    syncModTimes filename cfHash localinfo cloudinfo
+        (filename, Nothing, Just DbFileInfo{..}, Nothing) -> do
+            -- both deleted
+            -- delete local db entry
+            logLocalDelete filename
+            return $ Just $ DeleteLocalFile filename
+        (filename, Nothing, Just DbFileInfo{..}, Just CloudDeleteMarker) -> do
+            -- both deleted again
+            -- delete local db entry
+            logLocalDelete filename
+            return $ Just $ DeleteLocalFile filename
+        (filename, Nothing, Just DbFileInfo{..}, Just (CloudFile cloudinfo)) -> do
+            -- local file deleted
+            -- check if cloud version is the same as the local was
+            let CloudFileInfo{..} = cloudinfo
+            if dfHash == cfHash
+                then do
+                    -- local deleted, cloud unchanged
+                    -- delete cloud file
+                    logLocalDelete filename
+                    return $ Just $ DeleteCloudFile filename
+                else do
+                    -- local deleted, but cloud has newer version
+                    -- download it
+                    noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ filename ++ " #size " ++ show cfLength
+                    return $ Just $ UpdateLocalFile filename cloudinfo
+        (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) -> do
+            -- file deleted on server
+            -- check if it was modified locally
+            fileChanged <- isLocalFileChanged filename lfLength dfLength dfHash
+            if fileChanged
+                then do
+                    -- local file changed, upload to cloud
+                    logLocalChange filename dfLength lfLength
+                    return $ Just $ UpdateCloudFile filename localinfo
+                else do
+                    -- no local change, delete it
+                    logServerDelete filename
+                    return $ Just $ DeleteLocalFile filename
+        (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Just CloudDeleteMarker) -> do
+            -- file deleted on server
+            -- check if it was modified locally
+            fileChanged <- isLocalFileChanged filename lfLength dfLength dfHash
+            if fileChanged
+                then do
+                    -- local file changed, upload to cloud
+                    logLocalChange filename dfLength lfLength
+                    return $ Just $ UpdateCloudFile filename localinfo
+                else do
+                    -- no local change, delete it
+                    logServerDelete filename
+                    return $ Just $ DeleteLocalFile filename
+        (filename, Just localinfo@LocalFileInfo{..}, Just dbinfo@DbFileInfo{..}, Just (CloudFile cloudinfo)) -> do
+            let CloudFileInfo{..} = cloudinfo
+            -- let's not check file hash every time
+            -- pretend that if size and mod time are the same, there were no changes
+            localFileUpdated <- if lfLength == dfLength && lfModTime == dfModTime
+                then return False
+                else do
+                    localHash <- getFileHash (root </> filename)
+                    return $ localHash /= dfHash
+            let localMetadataUpdated = lfModTime /= dfModTime
+            let cloudFileUpdated = cfHash /= dfHash
+            let cloudMetadataUpdated = cfModTime /= dfModTime
+            if | localFileUpdated && cloudFileUpdated -> do
+                    -- both files updated
+                    logConflict filename lfLength cfLength
+                    return $ Just $ ResolveConflict filename cloudinfo
+               | localFileUpdated -> do
+                    -- local file changed, upload to cloud
+                    logLocalChange filename dfLength lfLength
+                    return $ Just $ UpdateCloudFile filename localinfo
+               | cloudFileUpdated -> do
+                    -- cloud file changed, download it
+                    logServerChange filename dbinfo cloudinfo
+                    return $ Just $ UpdateLocalFile filename cloudinfo
+               | otherwise ->
+                    -- no content update, check for metadata updates
+                    if (not localMetadataUpdated) && (not cloudMetadataUpdated)
+                        then return Nothing
+                        else syncModTimes filename dfHash localinfo cloudinfo
+
+    return $ catMaybes changes
+    where
+    files = zipLists3 localFiles dbFiles cloudFiles
+    isLocalFileChanged filename newLength oldLength oldHash
+        | newLength /= oldLength = return True
+        | otherwise = do
+            localHash <- getFileHash (root </> filename)
+            return $ localHash /= oldHash
+    syncModTimes filename hash localinfo cloudinfo = do
+        let LocalFileInfo{..} = localinfo
+        let CloudFileInfo{..} = cloudinfo
+        if lfModTime > cfModTime
+            then do
+                logLocalMetadataChange filename cfModTime lfModTime
+                return $ Just $ UpdateCloudMetadata filename localinfo hash
+            else do
+                logServerMetadataChange filename lfModTime cfModTime
+                return $ Just $ UpdateLocalMetadata filename cloudinfo

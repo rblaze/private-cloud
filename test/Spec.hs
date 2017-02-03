@@ -1,4 +1,4 @@
-{-# Language OverloadedStrings #-}
+{-# Language OverloadedStrings, LambdaCase, RecordWildCards #-}
 import Control.Monad
 import Data.ByteArray.Encoding
 import System.Directory
@@ -41,8 +41,7 @@ tests = testGroup "PrivateCloud tests"
         , testCase "Remove works" testDbDelete
         ]
     , testGroup "Sync tests"
-        [ testCase "getLocalChanges" testGetLocalChanges
-        , testCase "getServerChanges" testGetServerChanges
+        [ testCase "getFileChanges" testGetFileChanges
         ]
     ]
 
@@ -221,257 +220,324 @@ testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
     v <- withDatabase filename getFileList
     assertEqual "data found after delete" [] v
 
-testGetLocalChanges :: Assertion
-testGetLocalChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
+testGetFileChanges :: Assertion
+testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withDatabase (root </> dbName) $ \conn -> do
     createDirectoryIfMissing True (root </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (root </> "a" </> "b" </> "e" </> "f")
     createNamedPipe (root </> "a" </> "b" </> "c" </> "pipe") ownerReadMode
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo"
     writeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo") "barr"
 
-    let getChanges' func = do
+    let getChanges' func serverFiles = do
             localFiles <- map func . unrollTreeFiles . normalizeTree <$> makeTree root
-            withDatabase (root </> dbName) $ \conn -> do
-                dbFiles <- getFileList conn
-                getLocalChanges root localFiles dbFiles
+            dbFiles <- getFileList conn
+            getFileChanges root localFiles dbFiles serverFiles
 
     let getChanges = getChanges' id
 
-    let updateDb changes =
-            withDatabase (root </> dbName) $ \conn ->
-                forM_ changes $ \(f, i) -> case i of
-                    LocalContentChange info -> putFileInfo conn f info
-                    LocalMetadataChange info -> putFileInfo conn f info
-                    LocalDelete -> deleteFileInfo conn f
+    let cloud2db CloudFileInfo{..} = DbFileInfo
+            { dfLength = cfLength
+            , dfModTime = cfModTime
+            , dfHash = cfHash
+            }
 
-    let check msg golden = do
-            diff <- getChanges
+    let local2db filename LocalFileInfo{..} = do
+            hash <- getFileHash (root </> filename)
+            return DbFileInfo
+                { dfHash = hash
+                , dfLength = lfLength
+                , dfModTime = lfModTime
+                }
+
+    let updateDb changes =
+            forM_ changes $ \case
+                UpdateLocalFile{..} -> putFileInfo conn faFilename (cloud2db faCloudInfo)
+                UpdateLocalMetadata{..} -> putFileInfo conn faFilename (cloud2db faCloudInfo)
+                DeleteLocalFile{..} -> deleteFileInfo conn faFilename
+                UpdateCloudFile{..} -> do
+                    info <- local2db faFilename faLocalInfo
+                    putFileInfo conn faFilename info
+                UpdateCloudMetadata{..} -> do
+                    info <- local2db faFilename faLocalInfo
+                    putFileInfo conn faFilename info
+                DeleteCloudFile{..} -> deleteFileInfo conn faFilename
+                _ -> return ()
+
+    let check msg server golden = do
+            diff <- getChanges server
             assertEqual msg golden diff
             updateDb diff
 
-    check "incorrect change list on initial add" 
+    check "incorrect change list on initial add" []
+        [ UpdateCloudFile
+          { faFilename = "a/b/c/foo"
+          , faLocalInfo = LocalFileInfo
+            { lfLength = 3
+            , lfModTime = 42
+            }
+          }
+        , UpdateCloudFile
+          { faFilename = "a/b/e/f/foo"
+          , faLocalInfo = LocalFileInfo
+            { lfLength = 4
+            , lfModTime = 42
+            }
+          }
+        ]
+
+    check "can't detect absense of changes"
         [ ( "a/b/c/foo"
-          , LocalContentChange DbFileInfo
-            { dfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
-            , dfLength = 3
-            , dfModTime = 42
+          , CloudFile CloudFileInfo
+            { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
+            , cfLength = 3
+            , cfModTime = 42
+            , cfVersion = VersionId "100"
             }
           )
         , ( "a/b/e/f/foo"
-          , LocalContentChange DbFileInfo
-            { dfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
-            , dfLength = 4
-            , dfModTime = 42
+          , CloudFile CloudFileInfo
+            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "101"
             }
           )
         ]
+        []
 
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "fooo"
     check "can't detect file write"
         [ ( "a/b/c/foo"
-          , LocalContentChange DbFileInfo
-            { dfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
-            , dfLength = 4
-            , dfModTime = 42
+          , CloudFile CloudFileInfo
+            { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
+            , cfLength = 3
+            , cfModTime = 42
+            , cfVersion = VersionId "100"
+            }
+          )
+        , ( "a/b/e/f/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "101"
             }
           )
         ]
+        [ UpdateCloudFile
+          { faFilename = "a/b/c/foo"
+          , faLocalInfo = LocalFileInfo
+            { lfLength = 4
+            , lfModTime = 42
+            }
+          }
+        ]
 
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo1"
-    diff3 <- getChanges' $ \(f, i) ->
-        if f == "a/b/c/foo"
-            then (f, i { lfModTime = 1 })
-            else (f, i)
-    assertEqual "can't detect file write without len change"
+    diff3 <- getChanges'
+        ( \(f, i) -> if f == "a/b/c/foo"
+                        then (f, i { lfModTime = 1 })
+                        else (f, i)
+        )
         [ ( "a/b/c/foo"
-          , LocalContentChange DbFileInfo
-            { dfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
-            , dfLength = 4
-            , dfModTime = 1
+          , CloudFile CloudFileInfo
+            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "105"
             }
           )
+        , ( "a/b/e/f/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "101"
+            }
+          )
+        ]
+    assertEqual "can't detect file write without len change"
+        [ UpdateCloudFile
+          { faFilename = "a/b/c/foo"
+          , faLocalInfo = LocalFileInfo
+            { lfLength = 4
+            , lfModTime = 1
+            }
+          }
         ]
         diff3
     updateDb diff3
 
     check "can't detect timestamp only update"
         [ ( "a/b/c/foo"
-          , LocalMetadataChange DbFileInfo
-            { dfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
-            , dfLength = 4
-            , dfModTime = 42
+          , CloudFile CloudFileInfo
+            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , cfLength = 4
+            , cfModTime = 1
+            , cfVersion = VersionId "108"
+            }
+          )
+        , ( "a/b/e/f/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "101"
             }
           )
         ]
+        [ UpdateCloudMetadata
+          { faFilename = "a/b/c/foo"
+          , faLocalInfo = LocalFileInfo
+            { lfLength = 4
+            , lfModTime = 42
+            }
+          , faExpectedHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+          }
+        ]
 
     removeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo")
-    check "can't detect file removal" [ ("a/b/e/f/foo", LocalDelete) ]
-
-testGetServerChanges :: Assertion
-testGetServerChanges = do
-    let dbFiles =
-            [ ("a/b/bar", DbFileInfo
-                { dfHash = "hash1"
-                , dfLength = 50
-                , dfModTime = 10
-                })
-            , ("a/b/c/foo", DbFileInfo
-                { dfHash = "hash0"
-                , dfLength = 10
-                , dfModTime = 1
-                })
-            ]
-
-    let check msg serverFiles golden = do
-            diff <- getServerChanges dbFiles serverFiles
-            assertEqual msg golden diff
-
-    check "invalid list for no changes"
-        [ ("a/b/bar", CloudFile CloudFileInfo
-            { cfHash = "hash1"
-            , cfLength = 50
-            , cfModTime = 10
-            , cfVersion = VersionId "99"
-            })
-        , ("a/b/c/foo", CloudFile CloudFileInfo
-            { cfHash = "hash0"
-            , cfLength = 10
-            , cfModTime = 1
-            , cfVersion = VersionId "99"
-            })
+    check "can't detect file removal"
+        [ ( "a/b/c/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "108"
+            }
+          )
+        , ( "a/b/e/f/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "101"
+            }
+          )
         ]
-        []
-
-    check "invalid list for server delete" 
-        [ ("a/b/c/foo", CloudFile CloudFileInfo
-            { cfHash = "hash0"
-            , cfLength = 10
-            , cfModTime = 1
-            , cfVersion = VersionId "99"
-            })
-        ]
-        [ ("a/b/bar", CloudDelete) ]
-
-    check "invalid list for server marker delete" 
-        [ ("a/b/bar", CloudDeleteMarker)
-        , ("a/b/c/foo", CloudFile CloudFileInfo
-            { cfHash = "hash0"
-            , cfLength = 10
-            , cfModTime = 1
-            , cfVersion = VersionId "99"
-            })
-        ]
-        [ ("a/b/bar", CloudDelete) ]
-
-    check "invalid list for server tail delete" 
-        [ ("a/b/bar", CloudFile CloudFileInfo
-            { cfHash = "hash1"
-            , cfLength = 50
-            , cfModTime = 10
-            , cfVersion = VersionId "99"
-            })
-        ]
-        [ ("a/b/c/foo", CloudDelete) ]
-
-    check "invalid list for server add" 
-        [ ("a/b/bar", CloudFile CloudFileInfo
-            { cfHash = "hash1"
-            , cfLength = 50
-            , cfModTime = 10
-            , cfVersion = VersionId "99"
-            })
-        , ("a/b/bonfire", CloudFile CloudFileInfo
-            { cfHash = "hash3"
-            , cfLength = 20
-            , cfModTime = 100
-            , cfVersion = VersionId "99"
-            })
-        , ("a/b/c/foo", CloudFile CloudFileInfo
-            { cfHash = "hash0"
-            , cfLength = 10
-            , cfModTime = 1
-            , cfVersion = VersionId "99"
-            })
-        ]
-        [ ("a/b/bonfire", CloudContentChange CloudFileInfo
-            { cfHash = "hash3"
-            , cfLength = 20
-            , cfModTime = 100
-            , cfVersion = VersionId "99"
-            })
+        [ DeleteCloudFile
+          { faFilename = "a/b/e/f/foo"
+          }
         ]
 
-    check "invalid list for server tail add" 
-        [ ("a/b/bar", CloudFile CloudFileInfo
-            { cfHash = "hash1"
-            , cfLength = 50
-            , cfModTime = 10
-            , cfVersion = VersionId "99"
-            })
-        , ("a/b/c/foo", CloudFile CloudFileInfo
-            { cfHash = "hash0"
-            , cfLength = 10
-            , cfModTime = 1
-            , cfVersion = VersionId "99"
-            })
-        , ("a/b/delta", CloudFile CloudFileInfo
-            { cfHash = "hash14"
-            , cfLength = 20
-            , cfModTime = 101
-            , cfVersion = VersionId "99"
-            })
+    check "can't detect server add"
+        [ ( "a/b/c/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "108"
+            }
+          )
+        , ( "a/b/e/buzz"
+          , CloudFile CloudFileInfo
+            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "1"
+            }
+          )
         ]
-        [ ("a/b/delta", CloudContentChange CloudFileInfo
-            { cfHash = "hash14"
-            , cfLength = 20
-            , cfModTime = 101
-            , cfVersion = VersionId "99"
-            })
+        [ UpdateLocalFile
+          { faFilename = "a/b/e/buzz"
+          , faCloudInfo = CloudFileInfo
+            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "1"
+            }
+          }
+        ]
+    writeFile (root </> "a" </> "b" </> "e" </> "buzz") "barr"
+
+    check "can't detect server edit"
+        [ ( "a/b/c/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "108"
+            }
+          )
+        , ( "a/b/e/buzz"
+          , CloudFile CloudFileInfo
+            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "2"
+            }
+          )
+        ]
+        [ UpdateLocalFile
+          { faFilename = "a/b/e/buzz"
+          , faCloudInfo = CloudFileInfo
+            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "2"
+            }
+          }
+        ]
+    writeFile (root </> "a" </> "b" </> "e" </> "buzz") "fooo"
+
+    check "can't detect server metadata change"
+        [ ( "a/b/c/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "108"
+            }
+          )
+        , ( "a/b/e/buzz"
+          , CloudFile CloudFileInfo
+            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            , cfLength = 4
+            , cfModTime = 50
+            , cfVersion = VersionId "2"
+            }
+          )
+        ]
+        [ UpdateLocalMetadata
+          { faFilename = "a/b/e/buzz"
+          , faCloudInfo = CloudFileInfo
+            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            , cfLength = 4
+            , cfModTime = 50
+            , cfVersion = VersionId "2"
+            }
+          }
         ]
 
-    check "invalid list for server edit" 
-        [ ("a/b/bar", CloudFile CloudFileInfo
-            { cfHash = "hash1"
-            , cfLength = 50
-            , cfModTime = 10
-            , cfVersion = VersionId "99"
-            })
-        , ("a/b/c/foo", CloudFile CloudFileInfo
-            { cfHash = "hash10"
-            , cfLength = 10
-            , cfModTime = 17
-            , cfVersion = VersionId "99"
-            })
+    check "can't detect server delete with marker"
+        [ ( "a/b/c/foo"
+          , CloudFile CloudFileInfo
+            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            , cfLength = 4
+            , cfModTime = 42
+            , cfVersion = VersionId "108"
+            }
+          )
+        , ( "a/b/e/buzz"
+          , CloudDeleteMarker
+          )
         ]
-        [ ("a/b/c/foo", CloudContentChange CloudFileInfo
-            { cfHash = "hash10"
-            , cfLength = 10
-            , cfModTime = 17
-            , cfVersion = VersionId "99"
-            })
+        [ DeleteLocalFile
+          { faFilename = "a/b/e/buzz"
+          }
         ]
+    removeFile (root </> "a" </> "b" </> "e" </> "buzz")
 
-    check "invalid list for server metadata change" 
-        [ ("a/b/bar", CloudFile CloudFileInfo
-            { cfHash = "hash1"
-            , cfLength = 50
-            , cfModTime = 10
-            , cfVersion = VersionId "99"
-            })
-        , ("a/b/c/foo", CloudFile CloudFileInfo
-            { cfHash = "hash0"
-            , cfLength = 10
-            , cfModTime = 11
-            , cfVersion = VersionId "99"
-            })
+    check "can't detect server delete with missing record"
+        [ ( "a/b/e/buzz"
+          , CloudDeleteMarker
+          )
         ]
-        [ ("a/b/c/foo", CloudMetadataChange CloudFileInfo
-            { cfHash = "hash0"
-            , cfLength = 10
-            , cfModTime = 11
-            , cfVersion = VersionId "99"
-            })
+        [ DeleteLocalFile
+          { faFilename = "a/b/c/foo"
+          }
         ]
+    removeFile (root </> "a" </> "b" </> "c" </> "foo")
 
 testZipLists3 :: Assertion
 testZipLists3 = do
