@@ -2,7 +2,7 @@
 module PrivateCloud.Aws.SimpleDb where
 
 import Aws.Aws
-import Aws.Core
+import Aws.Core (defServiceConfig)
 import Aws.SimpleDb
 import Conduit
 import Control.Monad
@@ -30,8 +30,8 @@ uploadFileInfo CloudInfo{..} (EntryName file) CloudFileInfo{..} = do
     timestr <- printTime <$> getPOSIXTime
     let command = putAttributes file
             [ replaceAttribute "hash" (T.decodeUtf8 cfHash)
-            , replaceAttribute "size" (printInt cfLength)
-            , replaceAttribute "mtime" (printInt (round cfModTime :: Word64))
+            , replaceAttribute "size" (printSingle cfLength)
+            , replaceAttribute "mtime" (printSingle cfModTime)
             , replaceAttribute "version" (versionToText cfVersion)
             , replaceAttribute "recordmtime" timestr
             ]
@@ -59,7 +59,7 @@ uploadFileMetadata CloudInfo{..} (EntryName file) DbFileInfo{..} = do
     let command = PutAttributes
             { paItemName = file
             , paAttributes =
-                [ replaceAttribute "mtime" (printInt (round dfModTime :: Word64))
+                [ replaceAttribute "mtime" (printSingle dfModTime)
                 , replaceAttribute "size" (T.pack $ show dfLength)
                 ]
             , paExpected = [ expectedValue "hash" (T.decodeUtf8 dfHash) ]
@@ -114,14 +114,14 @@ getServerFiles' CloudInfo{..} queryText = do
                     ( EntryName itemName
                     , CloudFile CloudFileInfo
                         { cfLength = size
-                        , cfModTime = realToFrac (mtime :: Word64)
+                        , cfModTime = Timestamp mtime
                         , cfHash = T.encodeUtf8 filehash
                         , cfVersion = VersionId version
                         }
                     )
 
-printInt :: Buildable t => t -> T.Text
-printInt = TL.toStrict . format "{}" . Only
+printSingle :: Buildable t => t -> T.Text
+printSingle = TL.toStrict . format "{}" . Only
 
 printTime :: POSIXTime -> T.Text
-printTime time = printInt $ left 14 '0' (round time :: Word64)
+printTime time = printSingle $ left 14 '0' (round time :: Word64)

@@ -12,7 +12,6 @@ import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
-import PrivateCloud.Aws
 import PrivateCloud.Crypto
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
@@ -50,7 +49,7 @@ tests = testGroup "PrivateCloud tests"
 normalizeTree :: DirTree (Maybe LocalFileInfo) -> DirTree (Maybe LocalFileInfo)
 normalizeTree = fmap (fmap fixModTime)
     where
-    fixModTime f = f{lfModTime = 42}
+    fixModTime f = f{lfModTime = Timestamp 42}
 
 sampleTree :: DirTree (Maybe LocalFileInfo)
 sampleTree = Dir { name = "root", contents =
@@ -60,7 +59,10 @@ sampleTree = Dir { name = "root", contents =
                 [ Dir { name = "d", contents = [] }
                 , File
                     { name = "foo"
-                    , file = Just LocalFileInfo { lfLength = 3, lfModTime = 42 }
+                    , file = Just LocalFileInfo
+                        { lfLength = 3
+                        , lfModTime = Timestamp 42
+                        }
                     }
                 , File { name = "pipe", file = Nothing }
                 ]}
@@ -68,7 +70,10 @@ sampleTree = Dir { name = "root", contents =
                 [ Dir { name = "f", contents =
                     [ File
                         { name = "foo"
-                        , file = Just LocalFileInfo { lfLength = 4, lfModTime = 18 }
+                        , file = Just LocalFileInfo
+                            { lfLength = 4
+                            , lfModTime = Timestamp 18
+                            }
                         }
                     ]}
                 ]}
@@ -93,7 +98,7 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                         [ Dir { name = "d", contents = [] }
                         , File
                             { name = "foo"
-                            , file = Just LocalFileInfo { lfLength = 3, lfModTime = 42 }
+                            , file = Just LocalFileInfo { lfLength = 3, lfModTime = Timestamp 42 }
                             }
                         , File { name = "pipe", file = Nothing }
                         ]}
@@ -101,7 +106,7 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                         [ Dir { name = "f", contents =
                             [ File
                                 { name = "foo"
-                                , file = Just LocalFileInfo { lfLength = 4, lfModTime = 42 }
+                                , file = Just LocalFileInfo { lfLength = 4, lfModTime = Timestamp 42 }
                                 }
                             ]}
                         ]}
@@ -114,8 +119,8 @@ testUnrollTreeFiles :: Assertion
 testUnrollTreeFiles = do
     let files = unrollTreeFiles sampleTree
     assertEqual "Incorrect files extracted"
-        [ (EntryName "a/b/c/foo", LocalFileInfo { lfLength = 3, lfModTime = 42 })
-        , (EntryName "a/b/e/f/foo", LocalFileInfo { lfLength = 4, lfModTime = 18 })
+        [ (EntryName "a/b/c/foo", LocalFileInfo { lfLength = 3, lfModTime = Timestamp 42 })
+        , (EntryName "a/b/e/f/foo", LocalFileInfo { lfLength = 4, lfModTime = Timestamp 18 })
         ]
         files
 
@@ -135,7 +140,7 @@ testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
-    let srcts = 9876
+    let srcts = Timestamp 9876
     [(fname, info)] <- withDatabase filename $ \conn -> do
         putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = srchash
@@ -154,7 +159,7 @@ testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
-    let srcts = 9876
+    let srcts = Timestamp 9876
     withDatabase filename $ \conn ->
         putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = srchash
@@ -174,10 +179,10 @@ testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
-    let srcts = 9876
+    let srcts = Timestamp 9876
     let secondHash = "78901"
     let secondSize = 1024
-    let secondts = 5436
+    let secondts = Timestamp 5436
     withDatabase filename $ \conn -> do
         putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = srchash
@@ -201,7 +206,7 @@ testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
     removeFile filename
     let srchash = "12345"
     let srcsize = 123
-    let srcts = 9876
+    let srcts = Timestamp 9876
     withDatabase filename $ \conn -> do
         v <- getFileList conn
         assertEqual "unexpected data found" [] v
@@ -275,14 +280,14 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 3
-            , lfModTime = 42
+            , lfModTime = Timestamp 42
             }
           }
         , UpdateCloudFile
           { faFilename = EntryName "a/b/e/f/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
-            , lfModTime = 42
+            , lfModTime = Timestamp 42
             }
           }
         ]
@@ -292,7 +297,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "100"
             }
           )
@@ -300,7 +305,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
             }
           )
@@ -313,7 +318,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "100"
             }
           )
@@ -321,7 +326,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
             }
           )
@@ -330,7 +335,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
-            , lfModTime = 42
+            , lfModTime = Timestamp 42
             }
           }
         ]
@@ -338,14 +343,14 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo1"
     diff3 <- getChanges'
         ( \(f, i) -> if f == EntryName "a/b/c/foo"
-                        then (f, i { lfModTime = 1 })
+                        then (f, i { lfModTime = Timestamp 1 })
                         else (f, i)
         )
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "105"
             }
           )
@@ -353,7 +358,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
             }
           )
@@ -363,7 +368,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
-            , lfModTime = 1
+            , lfModTime = Timestamp 1
             }
           }
         ]
@@ -375,7 +380,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
-            , cfModTime = 1
+            , cfModTime = Timestamp 1
             , cfVersion = VersionId "108"
             }
           )
@@ -383,7 +388,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
             }
           )
@@ -392,7 +397,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
-            , lfModTime = 42
+            , lfModTime = Timestamp 42
             }
           , faExpectedHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
           }
@@ -404,7 +409,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
             }
           )
@@ -412,7 +417,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
             }
           )
@@ -427,7 +432,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
             }
           )
@@ -435,7 +440,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "1"
             }
           )
@@ -445,7 +450,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , faCloudInfo = CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "1"
             }
           }
@@ -457,7 +462,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
             }
           )
@@ -465,7 +470,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "2"
             }
           )
@@ -475,7 +480,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , faCloudInfo = CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "2"
             }
           }
@@ -487,7 +492,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
             }
           )
@@ -495,7 +500,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
-            , cfModTime = 50
+            , cfModTime = Timestamp 50
             , cfVersion = VersionId "2"
             }
           )
@@ -505,7 +510,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , faCloudInfo = CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
-            , cfModTime = 50
+            , cfModTime = Timestamp 50
             , cfVersion = VersionId "2"
             }
           }
@@ -516,7 +521,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
-            , cfModTime = 42
+            , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
             }
           )

@@ -2,13 +2,14 @@
 module PrivateCloud.FileInfo where
 
 import Data.Hashable
+import Data.Int
+import Data.Text.Buildable
 import Data.Word
-import Data.Time.Clock.POSIX
+import Foreign.C.Types
 import System.FilePath
+import System.Posix.Types
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
-
-import PrivateCloud.Aws
 
 dbName :: FilePath
 dbName = ".privatecloud"
@@ -31,9 +32,32 @@ entry2path (EntryName entry) = joinPath $ map T.unpack $ T.splitOn "/" entry
 (EntryName "") <//> next = next
 (EntryName base) <//> (EntryName next) = EntryName $ T.concat [base, "/", next]
 
+-- | Type for file timestamp
+newtype Timestamp = Timestamp Int64
+    deriving (Eq, Ord, Buildable)
+
+instance Show Timestamp where
+    show (Timestamp ts) = show ts
+
+epoch2ts :: EpochTime -> Timestamp
+epoch2ts (CTime ts) = Timestamp ts
+
+ts2epoch :: Timestamp -> EpochTime 
+ts2epoch (Timestamp ts) = fromIntegral ts
+
+-- | Type for S3 version id
+newtype VersionId = VersionId T.Text
+    deriving Eq
+
+instance Show VersionId where
+    show (VersionId v) = show v
+
+versionToText :: VersionId -> T.Text
+versionToText (VersionId txt) = txt
+
 data LocalFileInfo = LocalFileInfo
     { lfLength :: Word64
-    , lfModTime :: POSIXTime
+    , lfModTime :: Timestamp
     }
     deriving (Eq, Show)
 
@@ -42,7 +66,7 @@ type LocalFileList = [(EntryName, LocalFileInfo)]
 data DbFileInfo = DbFileInfo
     { dfHash :: BS.ByteString
     , dfLength :: Word64
-    , dfModTime :: POSIXTime
+    , dfModTime :: Timestamp
     }
     deriving (Eq, Show)
 
@@ -51,7 +75,7 @@ type DbFileList = [(EntryName, DbFileInfo)]
 data CloudFileInfo = CloudFileInfo
     { cfHash :: BS.ByteString
     , cfLength :: Word64
-    , cfModTime :: POSIXTime
+    , cfModTime :: Timestamp
     , cfVersion :: VersionId
     }
     deriving (Eq, Show)

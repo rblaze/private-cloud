@@ -3,7 +3,6 @@ module PrivateCloud.Sync where
 
 import Control.Monad
 import Data.Maybe
-import Data.Time.Clock.POSIX
 import Data.Word
 import System.FilePath
 import System.Log.Logger
@@ -61,7 +60,7 @@ logLocalChange :: EntryName -> Word64 -> Word64 -> IO ()
 logLocalChange file oldSize newSize = do
     noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ show file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
-logLocalMetadataChange :: EntryName -> POSIXTime -> POSIXTime -> IO ()
+logLocalMetadataChange :: EntryName -> Timestamp -> Timestamp -> IO ()
 logLocalMetadataChange file oldTs newTs =
     noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ show file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
@@ -79,7 +78,7 @@ logServerChange file oldInfo newInfo =
         ++ " #size " ++ show (cfLength newInfo)
         ++ " #oldsize " ++  show (dfLength oldInfo)
 
-logServerMetadataChange :: EntryName -> POSIXTime -> POSIXTime -> IO ()
+logServerMetadataChange :: EntryName -> Timestamp -> Timestamp -> IO ()
 logServerMetadataChange file oldTs newTs =
     noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ show file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
