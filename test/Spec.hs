@@ -26,6 +26,8 @@ tests :: TestTree
 tests = testGroup "PrivateCloud tests"
     [ testGroup "Helper function tests"
         [ testCase "zipLists3" testZipLists3
+        , testCase "path2entry" testPath2Entry
+        , testCase "entry2path" testEntry2Path
         ]
     , testGroup "DirTree tests"
         [ testCase "makeTree" testMakeTree
@@ -112,8 +114,8 @@ testUnrollTreeFiles :: Assertion
 testUnrollTreeFiles = do
     let files = unrollTreeFiles sampleTree
     assertEqual "Incorrect files extracted"
-        [ ("a/b/c/foo", LocalFileInfo { lfLength = 3, lfModTime = 42 })
-        , ("a/b/e/f/foo", LocalFileInfo { lfLength = 4, lfModTime = 18 })
+        [ (EntryName "a/b/c/foo", LocalFileInfo { lfLength = 3, lfModTime = 42 })
+        , (EntryName "a/b/e/f/foo", LocalFileInfo { lfLength = 4, lfModTime = 18 })
         ]
         files
 
@@ -135,13 +137,13 @@ testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
     let srcsize = 123
     let srcts = 9876
     [(fname, info)] <- withDatabase filename $ \conn -> do
-        putFileInfo conn "foo" DbFileInfo
+        putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
         getFileList conn
-    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
@@ -154,14 +156,14 @@ testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
     let srcsize = 123
     let srcts = 9876
     withDatabase filename $ \conn ->
-        putFileInfo conn "foo" DbFileInfo
+        putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
     [(fname, info)] <- withDatabase filename $ \conn ->
         getFileList conn
-    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
@@ -177,18 +179,18 @@ testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
     let secondSize = 1024
     let secondts = 5436
     withDatabase filename $ \conn -> do
-        putFileInfo conn "foo" DbFileInfo
+        putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-        putFileInfo conn "foo" DbFileInfo
+        putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = secondHash
             , dfLength = secondSize
             , dfModTime = secondts
             }
     [(fname, info)] <- withDatabase filename getFileList
-    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" secondHash (dfHash info)
     assertEqual "invalid size read" secondSize (dfLength info)
     assertEqual "invalid modtime read" secondts (dfModTime info)
@@ -203,16 +205,16 @@ testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
     withDatabase filename $ \conn -> do
         v <- getFileList conn
         assertEqual "unexpected data found" [] v
-        putFileInfo conn "foo" DbFileInfo
+        putFileInfo conn (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
     [(fname, info)] <- withDatabase filename $ \conn -> do
         v <- getFileList conn
-        deleteFileInfo conn "foo"
+        deleteFileInfo conn (EntryName "foo")
         return v
-    assertEqual "invalid filename read" "foo" fname
+    assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
@@ -242,7 +244,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             }
 
     let local2db filename LocalFileInfo{..} = do
-            hash <- getFileHash (root </> filename)
+            hash <- getFileHash (root </> entry2path filename)
             return DbFileInfo
                 { dfHash = hash
                 , dfLength = lfLength
@@ -270,14 +272,14 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     check "incorrect change list on initial add" []
         [ UpdateCloudFile
-          { faFilename = "a/b/c/foo"
+          { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 3
             , lfModTime = 42
             }
           }
         , UpdateCloudFile
-          { faFilename = "a/b/e/f/foo"
+          { faFilename = EntryName "a/b/e/f/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
             , lfModTime = 42
@@ -286,7 +288,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
         ]
 
     check "can't detect absense of changes"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
@@ -294,7 +296,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "100"
             }
           )
-        , ( "a/b/e/f/foo"
+        , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
@@ -307,7 +309,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "fooo"
     check "can't detect file write"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
@@ -315,7 +317,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "100"
             }
           )
-        , ( "a/b/e/f/foo"
+        , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
@@ -325,7 +327,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         ]
         [ UpdateCloudFile
-          { faFilename = "a/b/c/foo"
+          { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
             , lfModTime = 42
@@ -335,11 +337,11 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo1"
     diff3 <- getChanges'
-        ( \(f, i) -> if f == "a/b/c/foo"
+        ( \(f, i) -> if f == EntryName "a/b/c/foo"
                         then (f, i { lfModTime = 1 })
                         else (f, i)
         )
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
@@ -347,7 +349,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "105"
             }
           )
-        , ( "a/b/e/f/foo"
+        , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
@@ -358,7 +360,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
         ]
     assertEqual "can't detect file write without len change"
         [ UpdateCloudFile
-          { faFilename = "a/b/c/foo"
+          { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
             , lfModTime = 1
@@ -369,7 +371,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     updateDb diff3
 
     check "can't detect timestamp only update"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
@@ -377,7 +379,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "108"
             }
           )
-        , ( "a/b/e/f/foo"
+        , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
@@ -387,7 +389,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         ]
         [ UpdateCloudMetadata
-          { faFilename = "a/b/c/foo"
+          { faFilename = EntryName "a/b/c/foo"
           , faLocalInfo = LocalFileInfo
             { lfLength = 4
             , lfModTime = 42
@@ -398,7 +400,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     removeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo")
     check "can't detect file removal"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
@@ -406,7 +408,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "108"
             }
           )
-        , ( "a/b/e/f/foo"
+        , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
@@ -416,12 +418,12 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         ]
         [ DeleteCloudFile
-          { faFilename = "a/b/e/f/foo"
+          { faFilename = EntryName "a/b/e/f/foo"
           }
         ]
 
     check "can't detect server add"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
@@ -429,7 +431,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "108"
             }
           )
-        , ( "a/b/e/buzz"
+        , ( EntryName "a/b/e/buzz"
           , CloudFile CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
@@ -439,7 +441,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         ]
         [ UpdateLocalFile
-          { faFilename = "a/b/e/buzz"
+          { faFilename = EntryName "a/b/e/buzz"
           , faCloudInfo = CloudFileInfo
             { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
@@ -451,7 +453,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     writeFile (root </> "a" </> "b" </> "e" </> "buzz") "barr"
 
     check "can't detect server edit"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
@@ -459,7 +461,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "108"
             }
           )
-        , ( "a/b/e/buzz"
+        , ( EntryName "a/b/e/buzz"
           , CloudFile CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
@@ -469,7 +471,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         ]
         [ UpdateLocalFile
-          { faFilename = "a/b/e/buzz"
+          { faFilename = EntryName "a/b/e/buzz"
           , faCloudInfo = CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
@@ -481,7 +483,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     writeFile (root </> "a" </> "b" </> "e" </> "buzz") "fooo"
 
     check "can't detect server metadata change"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
@@ -489,7 +491,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "108"
             }
           )
-        , ( "a/b/e/buzz"
+        , ( EntryName "a/b/e/buzz"
           , CloudFile CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
@@ -499,7 +501,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         ]
         [ UpdateLocalMetadata
-          { faFilename = "a/b/e/buzz"
+          { faFilename = EntryName "a/b/e/buzz"
           , faCloudInfo = CloudFileInfo
             { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
@@ -510,7 +512,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
         ]
 
     check "can't detect server delete with marker"
-        [ ( "a/b/c/foo"
+        [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
             { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
@@ -518,30 +520,30 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             , cfVersion = VersionId "108"
             }
           )
-        , ( "a/b/e/buzz"
+        , ( EntryName "a/b/e/buzz"
           , CloudDeleteMarker
           )
         ]
         [ DeleteLocalFile
-          { faFilename = "a/b/e/buzz"
+          { faFilename = EntryName "a/b/e/buzz"
           }
         ]
     removeFile (root </> "a" </> "b" </> "e" </> "buzz")
 
     check "can't detect server delete with missing record"
-        [ ( "a/b/e/buzz"
+        [ ( EntryName "a/b/e/buzz"
           , CloudDeleteMarker
           )
         ]
         [ DeleteLocalFile
-          { faFilename = "a/b/c/foo"
+          { faFilename = EntryName "a/b/c/foo"
           }
         ]
     removeFile (root </> "a" </> "b" </> "c" </> "foo")
 
 testZipLists3 :: Assertion
-testZipLists3 = do
-    assertEqual "test1"
+testZipLists3 =
+    assertEqual "zipLists"
         [ (1, Just "1a", Just "1b", Nothing)
         , (2, Just "2a", Nothing, Nothing)
         , (3, Nothing, Just "3b", Nothing)
@@ -569,3 +571,20 @@ testZipLists3 = do
             , (9, "9c")
             ]
         )
+
+testPath2Entry :: Assertion
+testPath2Entry = do
+    assertEqual "single name" (EntryName "foo") $ path2entry "foo"
+    assertEqual "path with directory"
+        (EntryName "foo/bar.dat/buzz.txt")
+        (path2entry $ joinPath ["foo", "bar.dat", "buzz.txt"])
+    assertEqual "multi-slash name"
+        (EntryName "foo/bar/buzz.txt")
+        (path2entry $ "foo" ++  pathSeparator : pathSeparator : "bar" </> "buzz.txt")
+
+testEntry2Path :: Assertion
+testEntry2Path = do
+    assertEqual "single name" "foo" (entry2path $ EntryName "foo")
+    assertEqual "path with directory"
+        (joinPath ["foo", "bar.dat", "buzz.txt"])
+        (entry2path $ EntryName "foo/bar.dat/buzz.txt")

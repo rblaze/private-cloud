@@ -22,13 +22,13 @@ import qualified Data.Text.Read as T
 import PrivateCloud.Aws
 import PrivateCloud.FileInfo
 
-uploadFileInfo :: CloudInfo -> FilePath -> CloudFileInfo -> IO ()
-uploadFileInfo CloudInfo{..} file CloudFileInfo{..} = do
+uploadFileInfo :: CloudInfo -> EntryName -> CloudFileInfo -> IO ()
+uploadFileInfo CloudInfo{..} (EntryName file) CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
     timestr <- printTime <$> getPOSIXTime
-    let command = putAttributes (T.pack file)
+    let command = putAttributes file
             [ replaceAttribute "hash" (T.decodeUtf8 cfHash)
             , replaceAttribute "size" (printInt cfLength)
             , replaceAttribute "mtime" (printInt (round cfModTime :: Word64))
@@ -38,10 +38,10 @@ uploadFileInfo CloudInfo{..} file CloudFileInfo{..} = do
             ciDomain
     void $ memoryAws ciConfig defServiceConfig ciManager command
 
-uploadDeleteMarker :: CloudInfo -> FilePath -> IO ()
-uploadDeleteMarker CloudInfo{..} file = do
+uploadDeleteMarker :: CloudInfo -> EntryName -> IO ()
+uploadDeleteMarker CloudInfo{..} (EntryName file) = do
     timestr <- printTime <$> getPOSIXTime
-    let command = putAttributes (T.pack file)
+    let command = putAttributes file
             [ replaceAttribute "hash" T.empty
             , replaceAttribute "size" T.empty
             , replaceAttribute "mtime" T.empty
@@ -51,13 +51,13 @@ uploadDeleteMarker CloudInfo{..} file = do
             ciDomain
     void $ memoryAws ciConfig defServiceConfig ciManager command
 
-uploadFileMetadata :: CloudInfo -> FilePath -> DbFileInfo -> IO ()
-uploadFileMetadata CloudInfo{..} file DbFileInfo{..} = do
+uploadFileMetadata :: CloudInfo -> EntryName -> DbFileInfo -> IO ()
+uploadFileMetadata CloudInfo{..} (EntryName file) DbFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
     let command = PutAttributes
-            { paItemName = T.pack file
+            { paItemName = file
             , paAttributes =
                 [ replaceAttribute "mtime" (printInt (round dfModTime :: Word64))
                 , replaceAttribute "size" (T.pack $ show dfLength)
@@ -67,16 +67,16 @@ uploadFileMetadata CloudInfo{..} file DbFileInfo{..} = do
             }
     void $ memoryAws ciConfig defServiceConfig ciManager command
 
-removeFileInfo :: CloudInfo -> FilePath -> IO ()
-removeFileInfo CloudInfo{..} file =
+removeFileInfo :: CloudInfo -> EntryName -> IO ()
+removeFileInfo CloudInfo{..} (EntryName file) =
     void $ memoryAws ciConfig defServiceConfig ciManager $
-        deleteAttributes (T.pack file) [] ciDomain
+        deleteAttributes file [] ciDomain
 
-getServerFiles :: CloudInfo -> IO [(FilePath, CloudFileStatus)]
+getServerFiles :: CloudInfo -> IO CloudFileList
 getServerFiles config = getServerFiles' config ("select * from " <> ciDomain config)
 
 -- get files updated in a last hour
-getRecentServerFiles :: CloudInfo -> IO [(FilePath, CloudFileStatus)]
+getRecentServerFiles :: CloudInfo -> IO CloudFileList
 getRecentServerFiles config = do
     time <- getPOSIXTime
     let recentTime = time - recentAge
@@ -89,7 +89,7 @@ getRecentServerFiles config = do
     recentAge = 3600
 
 
-getServerFiles' :: CloudInfo -> T.Text -> IO [(FilePath, CloudFileStatus)]
+getServerFiles' :: CloudInfo -> T.Text -> IO CloudFileList
 getServerFiles' CloudInfo{..} queryText = do
     let query = (select queryText) { sConsistentRead = True }
     items <- runConduitRes $
@@ -105,13 +105,13 @@ getServerFiles' CloudInfo{..} queryText = do
     conv Item{..} = do
         filehash <- getAttr "hash" itemData
         if T.null filehash
-            then return ( T.unpack itemName, CloudDeleteMarker )
+            then return ( EntryName itemName, CloudDeleteMarker )
             else do
                 size <- readDec =<< getAttr "size" itemData
                 mtime <- readDec =<< getAttr "mtime" itemData
                 version <- getAttr "version" itemData
                 return
-                    ( T.unpack itemName
+                    ( EntryName itemName
                     , CloudFile CloudFileInfo
                         { cfLength = size
                         , cfModTime = realToFrac (mtime :: Word64)

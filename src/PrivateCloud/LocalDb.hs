@@ -18,12 +18,12 @@ withDatabase path f =
         let db = DbInfo { dbConnection = conn }
         f db
 
-getFileList :: DbInfo -> IO [(FilePath, DbFileInfo)]
+getFileList :: DbInfo -> IO DbFileList
 getFileList DbInfo{ dbConnection = conn } =
     map convertRow <$> query_ conn "SELECT file, lastSyncedHash, lastSyncedSize, lastSyncedModTime FROM localFiles ORDER BY file"
     where
     convertRow (file, hash, size, ts) =
-        ( file
+        ( EntryName file
         , DbFileInfo
             { dfHash = hash
             , dfLength = size
@@ -31,11 +31,11 @@ getFileList DbInfo{ dbConnection = conn } =
             }
         )
 
-putFileInfo :: DbInfo -> FilePath -> DbFileInfo -> IO ()
-putFileInfo DbInfo{ dbConnection = conn } file DbFileInfo{..} = withTransaction conn $ do
+putFileInfo :: DbInfo -> EntryName -> DbFileInfo -> IO ()
+putFileInfo DbInfo{ dbConnection = conn } (EntryName file) DbFileInfo{..} = withTransaction conn $ do
     let ts = round dfModTime :: Int64
     execute conn "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize, lastSyncedModTime) VALUES (?,?,?,?)" (file, dfHash, dfLength, ts)
 
-deleteFileInfo :: DbInfo -> FilePath -> IO ()
-deleteFileInfo DbInfo{ dbConnection = conn } file = withTransaction conn $
+deleteFileInfo :: DbInfo -> EntryName -> IO ()
+deleteFileInfo DbInfo{ dbConnection = conn } (EntryName file) = withTransaction conn $
     execute conn "DELETE FROM localFiles WHERE file = ?" (Only file)

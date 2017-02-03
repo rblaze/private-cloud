@@ -34,7 +34,9 @@ library
                      , conduit-extra
                      , cryptonite
                      , directory-tree
+                     , extra
                      , filepath
+                     , hashable
                      , hslogger
                      , http-client
                      , http-client-tls

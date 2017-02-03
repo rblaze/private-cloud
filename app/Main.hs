@@ -14,7 +14,7 @@ import System.Posix.Types
 import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws
-import PrivateCloud.Aws.Cleanup
+--import PrivateCloud.Aws.Cleanup
 import PrivateCloud.Aws.S3
 import PrivateCloud.Aws.SimpleDb
 import PrivateCloud.Crypto
@@ -63,10 +63,11 @@ syncChanges rootDir conn config = do
         ResolveConflict{..} ->
             error "Aaaaaaa!!!!!!"
         UpdateCloudFile{..} -> do
-            body <- BL.readFile (rootDir </> faFilename)
+            let path = rootDir </> entry2path faFilename
+            body <- BL.readFile path
             version <- uploadFile config faFilename body
             -- FIXME return CloudFileInfo from uploadFile
-            hash <- getFileHash (rootDir </> faFilename)
+            hash <- getFileHash path
             let cloudinfo = CloudFileInfo
                     { cfHash = hash
                     , cfModTime = lfModTime faLocalInfo
@@ -93,10 +94,11 @@ syncChanges rootDir conn config = do
             uploadDeleteMarker config faFilename
             deleteFileInfo conn faFilename
         UpdateLocalFile{..} -> do
+            let path = rootDir </> entry2path faFilename
             body <- downloadFile config faFilename (cfVersion faCloudInfo)
-            createDirectoryIfMissing True (dropFileName $ rootDir </> faFilename)
-            BL.writeFile (rootDir </> faFilename) body
-            setFileTimes (rootDir </> faFilename) (posix2epoch $ cfModTime faCloudInfo) (posix2epoch $ cfModTime faCloudInfo)
+            createDirectoryIfMissing True (dropFileName path)
+            BL.writeFile path body
+            setFileTimes path (posix2epoch $ cfModTime faCloudInfo) (posix2epoch $ cfModTime faCloudInfo)
             putFileInfo conn faFilename
                 DbFileInfo
                     { dfHash = cfHash faCloudInfo
@@ -104,7 +106,7 @@ syncChanges rootDir conn config = do
                     , dfModTime = cfModTime faCloudInfo
                     }
         UpdateLocalMetadata{..} -> do
-            setFileTimes (rootDir </> faFilename)
+            setFileTimes (rootDir </> entry2path faFilename)
                 (posix2epoch $ cfModTime faCloudInfo)
                 (posix2epoch $ cfModTime faCloudInfo)
             putFileInfo conn faFilename
@@ -114,7 +116,7 @@ syncChanges rootDir conn config = do
                     , dfModTime = cfModTime faCloudInfo
                     }
         DeleteLocalFile{..} -> do
-            removeFile (rootDir </> faFilename)
+            removeFile (rootDir </> entry2path faFilename)
             deleteFileInfo conn faFilename
     where
     posix2epoch :: POSIXTime -> EpochTime

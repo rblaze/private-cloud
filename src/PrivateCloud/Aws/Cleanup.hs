@@ -12,12 +12,10 @@ import Data.Maybe
 import Data.Monoid
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
-import System.Log.Logger
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
 import PrivateCloud.Aws
-import PrivateCloud.Aws.S3
 import PrivateCloud.Aws.SimpleDb
 import PrivateCloud.FileInfo
 
@@ -36,10 +34,10 @@ maxUnusedTime = 86400
 
 deleteOldVersions :: CloudInfo -> IO ()
 deleteOldVersions config@CloudInfo{..} = do
-    infoM s3LoggerName "#S3CLEANUP_START"
+    awsLogInfo "#S3CLEANUP_START"
     filelist <- getServerFiles config
     let isCloudFile (_, CloudDeleteMarker) = Nothing
-        isCloudFile (f, CloudFile i) = Just (T.pack f, cfVersion i)
+        isCloudFile (f, CloudFile i) = Just (f, cfVersion i)
     let knownVersions = HM.fromList $ mapMaybe isCloudFile filelist
     let command = getBucketObjectVersions ciBucket
 
@@ -49,14 +47,14 @@ deleteOldVersions config@CloudInfo{..} = do
     let checkCurrentFile st info
             | seenStoredVersion st = return True
             | version == storedVersion st = do
-                logInfo $ "#S3CLEANUP_FOUNDCURRENT #file " ++ show key ++ " #version " ++ show version
+                awsLogInfo $ "#S3CLEANUP_FOUNDCURRENT #file " ++ show key ++ " #version " ++ show version
                 put $ st { seenStoredVersion = True }
                 return False
             | otherwise = do
                 time <- liftIO getCurrentTime
                 let age = diffUTCTime time (oviLastModified info)
                 let tooOld = age > maxUnusedTime
-                unless tooOld $ logInfo $ "#S3CLEANUP_RECENT #file " ++ show key ++ " #version " ++ show version ++ " #age " ++ show age
+                unless tooOld $ awsLogInfo $ "#S3CLEANUP_RECENT #file " ++ show key ++ " #version " ++ show version ++ " #age " ++ show age
                 return tooOld
             where
             key = oviKey info
@@ -67,11 +65,11 @@ deleteOldVersions config@CloudInfo{..} = do
                 time <- liftIO getCurrentTime
                 let age = diffUTCTime time (oviLastModified info)
                 let tooOld = age > maxUnusedTime
-                logInfo $ "#S3CLEANUP_UNKNOWN #file " ++ show key ++ " #version " ++ show version ++ " #age " ++ show age
+                awsLogInfo $ "#S3CLEANUP_UNKNOWN #file " ++ show key ++ " #version " ++ show version ++ " #age " ++ show age
                 return tooOld
             | otherwise = do
                 let isCurrent = version == dbVersion
-                logInfo $ "#S3CLEANUP_KNOWN #file " ++ show key ++ " #version " ++ show version ++ " #isCurrent " ++ show isCurrent
+                awsLogInfo $ "#S3CLEANUP_KNOWN #file " ++ show key ++ " #version " ++ show version ++ " #isCurrent " ++ show isCurrent
                 put CleanupState
                     { currentKey = key
                     , storedVersion = dbVersion
@@ -86,7 +84,7 @@ deleteOldVersions config@CloudInfo{..} = do
             where
             key = oviKey info
             version = VersionId $ oviVersionId info
-            dbinfo = HM.lookup key knownVersions
+            dbinfo = HM.lookup (EntryName key) knownVersions
             Just dbVersion = dbinfo
 
     let checkVersion info = do
@@ -100,7 +98,7 @@ deleteOldVersions config@CloudInfo{..} = do
             command
         .| filterMC checkVersion
         .| mapM_C deleteVersion
-    logInfo "#S3CLEANUP_END"
+    awsLogInfo "#S3CLEANUP_END"
     where
     baseState = CleanupState
                 { currentKey = T.empty
@@ -111,13 +109,13 @@ deleteOldVersions config@CloudInfo{..} = do
         let key = oviKey info
         let version = oviVersionId info
         let delCommand = deleteObjectVersion ciBucket key version
-        logNotice $ "#S3DELETEVERSION #file " ++ show key
+        awsLogNotice $ "#S3DELETEVERSION #file " ++ show key
             ++ " #version " ++ show version
         void $ lift $ pureAws ciConfig defServiceConfig ciManager delCommand
 
 deleteOldDbRecords :: CloudInfo -> IO ()
 deleteOldDbRecords CloudInfo{..} = do
-    logInfo "#DBCLEANUP_START"
+    awsLogInfo "#DBCLEANUP_START"
     time <- getPOSIXTime
     let timestr = printTime $ time - maxUnusedTime
     let querystr = "select recordmtime from " <> ciDomain <>
@@ -126,19 +124,13 @@ deleteOldDbRecords CloudInfo{..} = do
     runConduitRes $
         awsIteratedList ciConfig defServiceConfig ciManager query
         .| mapM_C deleteDbRecord
-    logInfo "#DBCLEANUP_END"
+    awsLogInfo "#DBCLEANUP_END"
     where
     deleteDbRecord Item{..} = case itemData of
         [ ForAttribute "recordmtime" mtime ] -> do
-            logNotice $ "#S3DELETERECORD #file " ++ show itemName
+            awsLogNotice $ "#S3DELETERECORD #file " ++ show itemName
             void $ pureAws ciConfig defServiceConfig ciManager $
                 (deleteAttributes itemName [] ciDomain)
                 { daExpected = [ expectedValue "recordmtime" mtime ]
                 }
-        _ -> liftIO $ criticalM s3LoggerName $ "invalid attribute list " ++ show itemData
-
-logInfo :: MonadIO m => String -> m ()
-logInfo = liftIO . infoM s3LoggerName
-
-logNotice :: MonadIO m => String -> m ()
-logNotice = liftIO . noticeM s3LoggerName
+        _ -> awsLogCritical $ "invalid attribute list " ++ show itemData

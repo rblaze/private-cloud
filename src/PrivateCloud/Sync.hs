@@ -17,71 +17,71 @@ syncLoggerName = "PrivateCloud.Sync"
 
 data FileAction
     = ResolveConflict
-        { faFilename :: FilePath
+        { faFilename :: EntryName
         , faCloudInfo :: CloudFileInfo
         }
     | UpdateCloudFile
-        { faFilename :: FilePath
+        { faFilename :: EntryName
         , faLocalInfo :: LocalFileInfo
         }
     | UpdateCloudMetadata
-        { faFilename :: FilePath
+        { faFilename :: EntryName
         , faLocalInfo :: LocalFileInfo
         , faExpectedHash :: BS.ByteString
         }
     | DeleteCloudFile
-        { faFilename :: FilePath
+        { faFilename :: EntryName
         }
     | UpdateLocalFile
-        { faFilename :: FilePath
+        { faFilename :: EntryName
         , faCloudInfo :: CloudFileInfo
         }
     | UpdateLocalMetadata
-        { faFilename :: FilePath
+        { faFilename :: EntryName
         , faCloudInfo :: CloudFileInfo
         }
     | DeleteLocalFile
-        { faFilename :: FilePath
+        { faFilename :: EntryName
         }
     deriving (Show, Eq)
 
-logConflict :: FilePath -> Word64 -> Word64 -> IO ()
+logConflict :: EntryName -> Word64 -> Word64 -> IO ()
 logConflict file localSize cloudSize = do
-    noticeM syncLoggerName $ "#CONFLICT #file " ++ file
+    noticeM syncLoggerName $ "#CONFLICT #file " ++ show file
         ++ " #localsize " ++ show localSize ++ " #serversize " ++ show cloudSize
 
-logLocalNew :: FilePath -> Word64 -> IO ()
+logLocalNew :: EntryName -> Word64 -> IO ()
 logLocalNew file size = do
-    noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ file ++ " #size " ++ show size
+    noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ show file ++ " #size " ++ show size
 
-logLocalDelete :: FilePath -> IO ()
-logLocalDelete file = noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ file
+logLocalDelete :: EntryName -> IO ()
+logLocalDelete file = noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ show file
 
-logLocalChange :: FilePath -> Word64 -> Word64 -> IO ()
+logLocalChange :: EntryName -> Word64 -> Word64 -> IO ()
 logLocalChange file oldSize newSize = do
-    noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
+    noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ show file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
-logLocalMetadataChange :: FilePath -> POSIXTime -> POSIXTime -> IO ()
+logLocalMetadataChange :: EntryName -> POSIXTime -> POSIXTime -> IO ()
 logLocalMetadataChange file oldTs newTs =
-    noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ file
+    noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ show file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
-logServerNew :: FilePath -> Word64 -> IO ()
+logServerNew :: EntryName -> Word64 -> IO ()
 logServerNew file size = do
-    noticeM syncLoggerName $ "#NEW_SERVER #file " ++ file ++ " #size " ++ show size
+    noticeM syncLoggerName $ "#NEW_SERVER #file " ++ show file ++ " #size " ++ show size
 
-logServerDelete :: FilePath -> IO ()
-logServerDelete file = noticeM syncLoggerName $ "#DEL_SERVER #file " ++ file
+logServerDelete :: EntryName -> IO ()
+logServerDelete file = noticeM syncLoggerName $ "#DEL_SERVER #file " ++ show file
 
-logServerChange :: FilePath -> DbFileInfo -> CloudFileInfo -> IO ()
+logServerChange :: EntryName -> DbFileInfo -> CloudFileInfo -> IO ()
 logServerChange file oldInfo newInfo =
-    noticeM syncLoggerName $ "#UPD_SERVER #file " ++ file
+    noticeM syncLoggerName $ "#UPD_SERVER #file " ++ show file
         ++ " #size " ++ show (cfLength newInfo)
         ++ " #oldsize " ++  show (dfLength oldInfo)
 
-logServerMetadataChange :: FilePath -> POSIXTime -> POSIXTime -> IO ()
+logServerMetadataChange :: EntryName -> POSIXTime -> POSIXTime -> IO ()
 logServerMetadataChange file oldTs newTs =
-    noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ file
+    noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ show file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
 zipLists3 :: Ord f => [(f, a)] -> [(f, b)] -> [(f, c)] -> [(f, Maybe a, Maybe b, Maybe c)]
@@ -166,7 +166,7 @@ getFileChanges root localFiles dbFiles cloudFiles = do
                 else do
                     -- local deleted, but cloud has newer version
                     -- download it
-                    noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ filename ++ " #size " ++ show cfLength
+                    noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ show filename ++ " #size " ++ show cfLength
                     return $ Just $ UpdateLocalFile filename cloudinfo
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) -> do
             -- file deleted on server
@@ -201,7 +201,7 @@ getFileChanges root localFiles dbFiles cloudFiles = do
             localFileUpdated <- if lfLength == dfLength && lfModTime == dfModTime
                 then return False
                 else do
-                    localHash <- getFileHash (root </> filename)
+                    localHash <- getFileHash (root </> entry2path filename)
                     return $ localHash /= dfHash
             let localMetadataUpdated = lfModTime /= dfModTime
             let cloudFileUpdated = cfHash /= dfHash
@@ -230,7 +230,7 @@ getFileChanges root localFiles dbFiles cloudFiles = do
     isLocalFileChanged filename newLength oldLength oldHash
         | newLength /= oldLength = return True
         | otherwise = do
-            localHash <- getFileHash (root </> filename)
+            localHash <- getFileHash (root </> entry2path filename)
             return $ localHash /= oldHash
     syncModTimes filename hash localinfo cloudinfo = do
         let LocalFileInfo{..} = localinfo
