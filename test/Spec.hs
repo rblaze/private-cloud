@@ -11,6 +11,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Crypto
 import PrivateCloud.DirTree
@@ -129,8 +130,8 @@ testFileHMAC = withSystemTempFile "hmactest.dat" $ \filename h -> do
     BL.hPut h $ BL.take (1024 * 1024 * 3 + 150) $ BL.iterate (+ 1) 0
     hClose h
     hmac <- getFileHash filename
-    assertEqual "HMAC BASE64 mismatch" "q3jvejp7ArLvUO4aF+Q64ME04L7ORosEd4BiYmQwGDE=" hmac
-    let Right decodedHMAC = convertFromBase Base64 hmac
+    assertEqual "HMAC BASE64 mismatch" (Hash "q3jvejp7ArLvUO4aF+Q64ME04L7ORosEd4BiYmQwGDE=") hmac
+    let Right decodedHMAC = convertFromBase Base64 $ T.encodeUtf8 $ hash2text hmac
     let printableHMAC = convertToBase Base16 (decodedHMAC :: BS.ByteString)
     assertEqual "HMAC mismatch" "ab78ef7a3a7b02b2ef50ee1a17e43ae0c134e0bece468b047780626264301831" (printableHMAC :: BS.ByteString)
 
@@ -138,7 +139,7 @@ testDbAddRead :: Assertion
 testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
     hClose h
     removeFile filename
-    let srchash = "12345"
+    let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
     [(fname, info)] <- withDatabase filename $ \conn -> do
@@ -157,7 +158,7 @@ testDbDoubleInit :: Assertion
 testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
     hClose h
     removeFile filename
-    let srchash = "12345"
+    let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
     withDatabase filename $ \conn ->
@@ -177,10 +178,10 @@ testDbUpdate :: Assertion
 testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
     hClose h
     removeFile filename
-    let srchash = "12345"
+    let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    let secondHash = "78901"
+    let secondHash = Hash "78901"
     let secondSize = 1024
     let secondts = Timestamp 5436
     withDatabase filename $ \conn -> do
@@ -204,7 +205,7 @@ testDbDelete :: Assertion
 testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
     hClose h
     removeFile filename
-    let srchash = "12345"
+    let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
     withDatabase filename $ \conn -> do
@@ -295,7 +296,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect absense of changes"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
+            { cfHash = Hash "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "100"
@@ -303,7 +304,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
@@ -316,7 +317,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect file write"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
+            { cfHash = Hash "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "100"
@@ -324,7 +325,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
@@ -348,7 +349,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
         )
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "105"
@@ -356,7 +357,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
@@ -378,7 +379,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect timestamp only update"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 1
             , cfVersion = VersionId "108"
@@ -386,7 +387,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
@@ -399,7 +400,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             { lfLength = 4
             , lfModTime = Timestamp 42
             }
-          , faExpectedHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+          , faExpectedHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
           }
         ]
 
@@ -407,7 +408,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect file removal"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
@@ -415,7 +416,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/f/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "101"
@@ -430,7 +431,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect server add"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
@@ -438,7 +439,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/buzz"
           , CloudFile CloudFileInfo
-            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "1"
@@ -448,7 +449,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
         [ UpdateLocalFile
           { faFilename = EntryName "a/b/e/buzz"
           , faCloudInfo = CloudFileInfo
-            { cfHash = "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
+            { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "1"
@@ -460,7 +461,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect server edit"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
@@ -468,7 +469,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/buzz"
           , CloudFile CloudFileInfo
-            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "2"
@@ -478,7 +479,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
         [ UpdateLocalFile
           { faFilename = EntryName "a/b/e/buzz"
           , faCloudInfo = CloudFileInfo
-            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "2"
@@ -490,7 +491,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect server metadata change"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"
@@ -498,7 +499,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
           )
         , ( EntryName "a/b/e/buzz"
           , CloudFile CloudFileInfo
-            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 50
             , cfVersion = VersionId "2"
@@ -508,7 +509,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
         [ UpdateLocalMetadata
           { faFilename = EntryName "a/b/e/buzz"
           , faCloudInfo = CloudFileInfo
-            { cfHash = "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
+            { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 50
             , cfVersion = VersionId "2"
@@ -519,7 +520,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     check "can't detect server delete with marker"
         [ ( EntryName "a/b/c/foo"
           , CloudFile CloudFileInfo
-            { cfHash = "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
+            { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
             , cfVersion = VersionId "108"

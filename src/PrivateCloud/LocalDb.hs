@@ -24,7 +24,7 @@ getFileList DbInfo{ dbConnection = conn } =
     convertRow (file, hash, size, ts) =
         ( EntryName file
         , DbFileInfo
-            { dfHash = hash
+            { dfHash = Hash hash
             , dfLength = size
             , dfModTime = Timestamp ts
             }
@@ -33,7 +33,7 @@ getFileList DbInfo{ dbConnection = conn } =
 putFileInfo :: DbInfo -> EntryName -> DbFileInfo -> IO ()
 putFileInfo DbInfo{ dbConnection = conn } (EntryName file) DbFileInfo{..} = withTransaction conn $ do
     let Timestamp ts = dfModTime
-    execute conn "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize, lastSyncedModTime) VALUES (?,?,?,?)" (file, dfHash, dfLength, ts)
+    execute conn "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize, lastSyncedModTime) VALUES (?,?,?,?)" (file, hash2text dfHash, dfLength, ts)
 
 deleteFileInfo :: DbInfo -> EntryName -> IO ()
 deleteFileInfo DbInfo{ dbConnection = conn } (EntryName file) = withTransaction conn $

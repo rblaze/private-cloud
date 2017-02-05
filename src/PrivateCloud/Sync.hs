@@ -6,7 +6,6 @@ import Data.Maybe
 import Data.Word
 import System.FilePath
 import System.Log.Logger
-import qualified Data.ByteString as BS
 
 import PrivateCloud.Crypto
 import PrivateCloud.FileInfo
@@ -26,7 +25,7 @@ data FileAction
     | UpdateCloudMetadata
         { faFilename :: EntryName
         , faLocalInfo :: LocalFileInfo
-        , faExpectedHash :: BS.ByteString
+        , faExpectedHash :: Hash
         }
     | DeleteCloudFile
         { faFilename :: EntryName

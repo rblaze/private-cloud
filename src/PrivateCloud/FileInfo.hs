@@ -8,7 +8,6 @@ import Data.Word
 import Foreign.C.Types
 import System.FilePath
 import System.Posix.Types
-import qualified Data.ByteString as BS
 import qualified Data.Text as T
 
 dbName :: FilePath
@@ -46,14 +45,18 @@ ts2epoch :: Timestamp -> EpochTime
 ts2epoch (Timestamp ts) = fromIntegral ts
 
 -- | Type for S3 version id
-newtype VersionId = VersionId T.Text
+newtype VersionId = VersionId { version2text :: T.Text }
     deriving Eq
 
 instance Show VersionId where
     show (VersionId v) = show v
 
-versionToText :: VersionId -> T.Text
-versionToText (VersionId txt) = txt
+-- | Type for file hash
+newtype Hash = Hash { hash2text :: T.Text }
+    deriving Eq
+
+instance Show Hash where
+    show (Hash h) = show h
 
 data LocalFileInfo = LocalFileInfo
     { lfLength :: Word64
@@ -64,7 +67,7 @@ data LocalFileInfo = LocalFileInfo
 type LocalFileList = [(EntryName, LocalFileInfo)]
 
 data DbFileInfo = DbFileInfo
-    { dfHash :: BS.ByteString
+    { dfHash :: Hash
     , dfLength :: Word64
     , dfModTime :: Timestamp
     }
@@ -73,7 +76,7 @@ data DbFileInfo = DbFileInfo
 type DbFileList = [(EntryName, DbFileInfo)]
 
 data CloudFileInfo = CloudFileInfo
-    { cfHash :: BS.ByteString
+    { cfHash :: Hash
     , cfLength :: Word64
     , cfModTime :: Timestamp
     , cfVersion :: VersionId

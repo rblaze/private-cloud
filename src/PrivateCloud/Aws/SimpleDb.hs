@@ -16,7 +16,6 @@ import Data.Time.Clock.POSIX
 import Data.Word
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Encoding as T
 import qualified Data.Text.Read as T
 
 import PrivateCloud.Aws
@@ -29,10 +28,10 @@ uploadFileInfo CloudInfo{..} (EntryName file) CloudFileInfo{..} = do
 -- XXX think about versioning? Maybe use protobufs or bond.
     timestr <- printTime <$> getPOSIXTime
     let command = putAttributes file
-            [ replaceAttribute "hash" (T.decodeUtf8 cfHash)
+            [ replaceAttribute "hash" (hash2text cfHash)
             , replaceAttribute "size" (printSingle cfLength)
             , replaceAttribute "mtime" (printSingle cfModTime)
-            , replaceAttribute "version" (versionToText cfVersion)
+            , replaceAttribute "version" (version2text cfVersion)
             , replaceAttribute "recordmtime" timestr
             ]
             ciDomain
@@ -62,7 +61,7 @@ uploadFileMetadata CloudInfo{..} (EntryName file) DbFileInfo{..} = do
                 [ replaceAttribute "mtime" (printSingle dfModTime)
                 , replaceAttribute "size" (T.pack $ show dfLength)
                 ]
-            , paExpected = [ expectedValue "hash" (T.decodeUtf8 dfHash) ]
+            , paExpected = [ expectedValue "hash" (hash2text dfHash) ]
             , paDomainName = ciDomain
             }
     void $ memoryAws ciConfig defServiceConfig ciManager command
@@ -115,7 +114,7 @@ getServerFiles' CloudInfo{..} queryText = do
                     , CloudFile CloudFileInfo
                         { cfLength = size
                         , cfModTime = Timestamp mtime
-                        , cfHash = T.encodeUtf8 filehash
+                        , cfHash = Hash filehash
                         , cfVersion = VersionId version
                         }
                     )
