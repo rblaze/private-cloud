@@ -61,8 +61,7 @@ syncChanges rootDir conn config = do
             error "Aaaaaaa!!!!!!"
         UpdateCloudFile{..} -> do
             let path = rootDir </> entry2path faFilename
-            body <- BL.readFile path
-            version <- uploadFile config faFilename body
+            version <- uploadFile config faFilename path
             -- FIXME return CloudFileInfo from uploadFile
             hash <- getFileHash path
             let cloudinfo = CloudFileInfo

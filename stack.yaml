@@ -39,7 +39,7 @@ packages:
 - '.'
 - location:
     git: https://github.com/aristidb/aws
-    commit: db3dd9e
+    commit: f59a6d
   extra-dep: true
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
