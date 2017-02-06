@@ -62,8 +62,7 @@ uploadFile CloudInfo{..} (EntryName filename) localPath = do
             =$= putConduit ciConfig defServiceConfig ciManager ciBucket filename uploadId
             =$= sinkList
         s3LogInfo $ "#S3UPLOAD_COMBINE #file " ++ show filename
-        resp <- liftIO $ sendEtag ciConfig defServiceConfig ciManager ciBucket filename uploadId etags
-        return resp
+        liftIO $ sendEtag ciConfig defServiceConfig ciManager ciBucket filename uploadId etags
 
 deleteFile :: CloudInfo -> EntryName -> IO ()
 deleteFile CloudInfo{..} (EntryName filename) = do
@@ -80,7 +79,7 @@ downloadFile CloudInfo{..} (EntryName filename) (VersionId version) = do
         GetObjectResponse { gorResponse = resp } 
             <- pureAws ciConfig defServiceConfig ciManager command
         -- XXX replace with write to temp file, then move to original.
-        -- XXX this will prevent partial downloads and memory overuse.
+        -- this will prevent partial downloads and memory overuse.
         responseBody resp $$+- sinkLazy
     s3LogInfo $ "#S3DOWNLOADED #file " ++ show filename
     return body

@@ -94,7 +94,7 @@ deleteOldVersions config@CloudInfo{..} = do
                 else checkNextFile info
 
     runResourceT $ flip evalStateT baseState $ runConduit $ awsIteratedList'
-            (\r -> lift (pureAws ciConfig defServiceConfig ciManager r))
+            (lift . pureAws ciConfig defServiceConfig ciManager)
             command
         .| filterMC checkVersion
         .| mapM_C deleteVersion

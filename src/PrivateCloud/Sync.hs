@@ -44,19 +44,19 @@ data FileAction
     deriving (Show, Eq)
 
 logConflict :: EntryName -> Word64 -> Word64 -> IO ()
-logConflict file localSize cloudSize = do
+logConflict file localSize cloudSize =
     noticeM syncLoggerName $ "#CONFLICT #file " ++ show file
         ++ " #localsize " ++ show localSize ++ " #serversize " ++ show cloudSize
 
 logLocalNew :: EntryName -> Word64 -> IO ()
-logLocalNew file size = do
+logLocalNew file size =
     noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ show file ++ " #size " ++ show size
 
 logLocalDelete :: EntryName -> IO ()
 logLocalDelete file = noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ show file
 
 logLocalChange :: EntryName -> Word64 -> Word64 -> IO ()
-logLocalChange file oldSize newSize = do
+logLocalChange file oldSize newSize =
     noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ show file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
 logLocalMetadataChange :: EntryName -> Timestamp -> Timestamp -> IO ()
@@ -65,7 +65,7 @@ logLocalMetadataChange file oldTs newTs =
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
 logServerNew :: EntryName -> Word64 -> IO ()
-logServerNew file size = do
+logServerNew file size =
     noticeM syncLoggerName $ "#NEW_SERVER #file " ++ show file ++ " #size " ++ show size
 
 logServerDelete :: EntryName -> IO ()
@@ -234,7 +234,7 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                     return $ Just $ UpdateLocalFile filename cloudinfo
                | otherwise ->
                     -- no content update, check for metadata updates
-                    if (not localMetadataUpdated) && (not cloudMetadataUpdated)
+                    if not localMetadataUpdated && not cloudMetadataUpdated
                         then return Nothing
                         else syncModTimes filename dfHash localinfo cloudinfo
 
