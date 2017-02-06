@@ -35,7 +35,7 @@ maxUnusedTime = 86400
 deleteOldVersions :: CloudInfo -> IO ()
 deleteOldVersions config@CloudInfo{..} = do
     awsLogInfo "#S3CLEANUP_START"
-    filelist <- getServerFiles config
+    filelist <- getAllServerFiles config
     let isCloudFile (_, CloudDeleteMarker) = Nothing
         isCloudFile (f, CloudFile i) = Just (f, cfVersion i)
     let knownVersions = HM.fromList $ mapMaybe isCloudFile filelist

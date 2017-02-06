@@ -239,7 +239,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     let getChanges' func serverFiles = do
             localFiles <- map func . unrollTreeFiles . normalizeTree <$> makeTree root
             dbFiles <- getFileList conn
-            getFileChanges root localFiles dbFiles serverFiles
+            getAllFileChanges root localFiles dbFiles serverFiles
 
     let getChanges = getChanges' id
 

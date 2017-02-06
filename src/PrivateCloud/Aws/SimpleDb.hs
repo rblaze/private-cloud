@@ -14,6 +14,7 @@ import Data.Text.Buildable
 import Data.Text.Format
 import Data.Time.Clock.POSIX
 import Data.Word
+import System.Log.Logger
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as T
@@ -21,11 +22,18 @@ import qualified Data.Text.Read as T
 import PrivateCloud.Aws
 import PrivateCloud.FileInfo
 
+sdbLoggerName :: String
+sdbLoggerName = "PrivateCloud.AWS.SimpleDb"
+
+sdbLogInfo :: MonadIO m => String -> m ()
+sdbLogInfo = liftIO . infoM sdbLoggerName
+
 uploadFileInfo :: CloudInfo -> EntryName -> CloudFileInfo -> IO ()
 uploadFileInfo CloudInfo{..} (EntryName file) CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
+    sdbLogInfo $ "#DB_UPLOAD #file " ++ show file
     timestr <- printTime <$> getPOSIXTime
     let command = putAttributes file
             [ replaceAttribute "hash" (hash2text cfHash)
@@ -39,6 +47,7 @@ uploadFileInfo CloudInfo{..} (EntryName file) CloudFileInfo{..} = do
 
 uploadDeleteMarker :: CloudInfo -> EntryName -> IO ()
 uploadDeleteMarker CloudInfo{..} (EntryName file) = do
+    sdbLogInfo $ "#DB_MARK_DELETED #file " ++ show file
     timestr <- printTime <$> getPOSIXTime
     let command = putAttributes file
             [ replaceAttribute "hash" T.empty
@@ -55,11 +64,14 @@ uploadFileMetadata CloudInfo{..} (EntryName file) DbFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
+    sdbLogInfo $ "#DB_UPDATE #file " ++ show file
+    timestr <- printTime <$> getPOSIXTime
     let command = PutAttributes
             { paItemName = file
             , paAttributes =
                 [ replaceAttribute "mtime" (printSingle dfModTime)
-                , replaceAttribute "size" (T.pack $ show dfLength)
+                , replaceAttribute "size" (printSingle dfLength)
+                , replaceAttribute "recordmtime" timestr
                 ]
             , paExpected = [ expectedValue "hash" (hash2text dfHash) ]
             , paDomainName = ciDomain
@@ -67,29 +79,32 @@ uploadFileMetadata CloudInfo{..} (EntryName file) DbFileInfo{..} = do
     void $ memoryAws ciConfig defServiceConfig ciManager command
 
 removeFileInfo :: CloudInfo -> EntryName -> IO ()
-removeFileInfo CloudInfo{..} (EntryName file) =
+removeFileInfo CloudInfo{..} (EntryName file) = do
+    sdbLogInfo $ "#DB_DELETE #file " ++ show file
     void $ memoryAws ciConfig defServiceConfig ciManager $
         deleteAttributes file [] ciDomain
 
-getServerFiles :: CloudInfo -> IO CloudFileList
-getServerFiles config = getServerFiles' config ("select * from " <> ciDomain config)
+getAllServerFiles :: CloudInfo -> IO CloudFileList
+getAllServerFiles config = do
+    sdbLogInfo "#DB_GET_ALL"
+    getServerFiles config ("select * from " <> ciDomain config)
 
 -- get files updated in a last hour
 getRecentServerFiles :: CloudInfo -> IO CloudFileList
 getRecentServerFiles config = do
+    sdbLogInfo "#DB_GET_RECENT"
     time <- getPOSIXTime
     let recentTime = time - recentAge
     let timestr = printTime recentTime
-    getServerFiles' config $
+    getServerFiles config $
         "select * from " <> ciDomain config <>
         " where recordmtime > '" <> timestr <> "'"
     where
     recentAge :: POSIXTime
     recentAge = 3600
 
-
-getServerFiles' :: CloudInfo -> T.Text -> IO CloudFileList
-getServerFiles' CloudInfo{..} queryText = do
+getServerFiles :: CloudInfo -> T.Text -> IO CloudFileList
+getServerFiles CloudInfo{..} queryText = do
     let query = (select queryText) { sConsistentRead = True }
     items <- runConduitRes $
         awsIteratedList ciConfig defServiceConfig ciManager query

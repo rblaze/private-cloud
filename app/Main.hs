@@ -37,22 +37,36 @@ main = do
     withDatabase (rootDir </> dbName) $ \conn -> do
         noticeM mainLoggerName "#DBOPEN"
 
+        syncAllChanges rootDir conn config
+
         forever $ handleAny
             (\e -> errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
             do
-                syncChanges rootDir conn config
+                syncRecentChanges rootDir conn config
                 -- FIXME run cleanup rarely
 --                deleteOldVersions config
 --                deleteOldDbRecords config
                 threadDelay 10000000
 
-syncChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncChanges rootDir conn config = do
+syncAllChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
+syncAllChanges rootDir conn config =
+    syncChanges rootDir conn config $ \localFiles dbFiles -> do
+        serverFiles <- getAllServerFiles config
+        print serverFiles
+        getAllFileChanges rootDir localFiles dbFiles serverFiles
+
+syncRecentChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
+syncRecentChanges rootDir conn config =
+    syncChanges rootDir conn config $ \localFiles dbFiles -> do
+        serverFiles <- getRecentServerFiles config
+        print serverFiles
+        getRecentFileChanges rootDir localFiles dbFiles serverFiles
+
+syncChanges :: FilePath -> DbInfo -> CloudInfo -> (LocalFileList -> DbFileList -> IO [FileAction]) -> IO ()
+syncChanges rootDir conn config getUpdates = do
     localFiles <- unrollTreeFiles <$> makeTree rootDir
     dbFiles <- getFileList conn
-    serverFiles <- getServerFiles config
-
-    updates <- getFileChanges rootDir localFiles dbFiles serverFiles
+    updates <- getUpdates localFiles dbFiles
     print updates
 
     forM_ updates $ \case

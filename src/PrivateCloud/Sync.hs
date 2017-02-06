@@ -103,8 +103,14 @@ zipLists3 as bs cs = (firstName, aval, bval, cval) : zipLists3 as' bs' cs'
     headMay [] = Nothing
     headMay (x:_) = Just x
 
-getFileChanges :: FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
-getFileChanges root localFiles dbFiles cloudFiles = do
+getAllFileChanges :: FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
+getAllFileChanges = getFileChanges False
+
+getRecentFileChanges :: FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
+getRecentFileChanges = getFileChanges True
+
+getFileChanges :: Bool -> FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
+getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
     changes <- forM files $ \case
         (_, Nothing, Nothing, Nothing) -> do
             -- should never happen
@@ -141,12 +147,17 @@ getFileChanges root localFiles dbFiles cloudFiles = do
                     -- somehow files are the same, maybe we just lost local db
                     -- just set latest timestamp everywhere
                     syncModTimes filename cfHash localinfo cloudinfo
-        (filename, Nothing, Just DbFileInfo{..}, Nothing) -> do
+        (filename, Nothing, Just DbFileInfo{}, Nothing) | onlyRecentServerFiles -> do
+            -- local delete and nobody updated db recently, so file must be there
+            -- delete cloud file
+            logLocalDelete filename
+            return $ Just $ DeleteCloudFile filename
+        (filename, Nothing, Just DbFileInfo{}, Nothing) -> do
             -- both deleted
             -- delete local db entry
             logLocalDelete filename
             return $ Just $ DeleteLocalFile filename
-        (filename, Nothing, Just DbFileInfo{..}, Just CloudDeleteMarker) -> do
+        (filename, Nothing, Just DbFileInfo{}, Just CloudDeleteMarker) -> do
             -- both deleted again
             -- delete local db entry
             logLocalDelete filename
@@ -167,18 +178,23 @@ getFileChanges root localFiles dbFiles cloudFiles = do
                     noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ show filename ++ " #size " ++ show cfLength
                     return $ Just $ UpdateLocalFile filename cloudinfo
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) -> do
-            -- file deleted on server
+            -- file deleted on server or we have no server status
             -- check if it was modified locally
             fileChanged <- isLocalFileChanged filename lfLength dfLength dfHash
-            if fileChanged
-                then do
-                    -- local file changed, upload to cloud
+            if | fileChanged -> do
+                    -- local file changed, upload to cloud in any case
                     logLocalChange filename dfLength lfLength
                     return $ Just $ UpdateCloudFile filename localinfo
-                else do
-                    -- no local change, delete it
+               | not onlyRecentServerFiles -> do
+                    -- no local change, for sure absent on server, delete
                     logServerDelete filename
                     return $ Just $ DeleteLocalFile filename
+               | lfModTime /= dfModTime -> do
+                    -- metadata updated, was not recently updated on server
+                    -- try to update metadata, it will fail if file deleted
+                    logLocalMetadataChange filename dfModTime lfModTime
+                    return $ Just $ UpdateCloudMetadata filename localinfo dfHash
+               | otherwise -> return Nothing -- no change at all
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Just CloudDeleteMarker) -> do
             -- file deleted on server
             -- check if it was modified locally
