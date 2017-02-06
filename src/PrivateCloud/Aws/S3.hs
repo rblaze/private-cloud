@@ -7,9 +7,12 @@ import Aws.S3
 import Conduit
 import Control.Exception.Safe
 import Control.Monad
+import Crypto.MAC.HMAC.Conduit
+import Data.Word
 import Network.HTTP.Client
 import System.Log.Logger
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws
@@ -27,7 +30,10 @@ s3LogNotice = liftIO . noticeM s3LoggerName
 s3LogCritical :: MonadIO m => String -> m ()
 s3LogCritical = liftIO . criticalM s3LoggerName
 
-uploadFile :: CloudInfo -> EntryName -> FilePath -> IO VersionId
+hmacKey :: BS.ByteString
+hmacKey = BS.pack [102,111,111,98,97,114]
+
+uploadFile :: CloudInfo -> EntryName -> FilePath -> IO (VersionId, Word64, Hash)
 uploadFile CloudInfo{..} (EntryName filename) localPath = do
     s3LogNotice $ "#S3UPLOAD_START #file " ++ show filename
     -- S3 requires Content-Length header for uploads, and to provide 
@@ -36,13 +42,17 @@ uploadFile CloudInfo{..} (EntryName filename) localPath = do
     -- calculate the size using knowledge of encryption mode, but this
     -- looks like hack.
     -- Also (TODO) chunked uploads allow for restarts in case of network failures.
-    resp <- runConduitRes $
+    (resp, len, hmac) <- runConduitRes $
         sourceFileBS localPath
-        .| uploadSink
+        .| getZipSink ((,,) <$> ZipSink uploadSink
+                <*> ZipSink lengthCE
+                <*> ZipSink (sinkHMAC hmacKey))
+    let hash = hmac2hash hmac
     s3LogInfo $ "#S3UPLOAD_END #file " ++ show filename
+        ++ " #len " ++ show len ++ " #hash " ++  show hash
     case cmurVersionId resp of
         Nothing -> throw $ AwsException "no version returned"
-        Just version -> return $ VersionId version
+        Just version -> return (VersionId version, len, hash)
     where
     chunkSize = 6 * 1024 * 1024
     uploadSink = do
@@ -52,7 +62,8 @@ uploadFile CloudInfo{..} (EntryName filename) localPath = do
             =$= putConduit ciConfig defServiceConfig ciManager ciBucket filename uploadId
             =$= sinkList
         s3LogInfo $ "#S3UPLOAD_COMBINE #file " ++ show filename
-        liftIO $ sendEtag ciConfig defServiceConfig ciManager ciBucket filename uploadId etags
+        resp <- liftIO $ sendEtag ciConfig defServiceConfig ciManager ciBucket filename uploadId etags
+        return resp
 
 deleteFile :: CloudInfo -> EntryName -> IO ()
 deleteFile CloudInfo{..} (EntryName filename) = do

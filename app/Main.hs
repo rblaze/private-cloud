@@ -14,7 +14,6 @@ import PrivateCloud.Aws
 --import PrivateCloud.Aws.Cleanup
 import PrivateCloud.Aws.S3
 import PrivateCloud.Aws.SimpleDb
-import PrivateCloud.Crypto
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
@@ -61,20 +60,18 @@ syncChanges rootDir conn config = do
             error "Aaaaaaa!!!!!!"
         UpdateCloudFile{..} -> do
             let path = rootDir </> entry2path faFilename
-            version <- uploadFile config faFilename path
-            -- FIXME return CloudFileInfo from uploadFile
-            hash <- getFileHash path
+            (version, len, hash) <- uploadFile config faFilename path
             let cloudinfo = CloudFileInfo
                     { cfHash = hash
                     , cfModTime = lfModTime faLocalInfo
-                    , cfLength = lfLength faLocalInfo
+                    , cfLength = len
                     , cfVersion = version
                     }
             uploadFileInfo config faFilename cloudinfo
             let dbinfo = DbFileInfo
                     { dfHash = hash
                     , dfModTime = lfModTime faLocalInfo
-                    , dfLength = lfLength faLocalInfo
+                    , dfLength = len
                     }
             putFileInfo conn faFilename dbinfo
         UpdateCloudMetadata{..} -> do

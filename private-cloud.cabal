@@ -33,6 +33,7 @@ library
                      , conduit-combinators
                      , conduit-extra
                      , cryptonite
+                     , cryptonite-conduit
                      , directory-tree
                      , filepath
                      , hashable

@@ -1,6 +1,9 @@
 {-# Language OverloadedStrings, GeneralizedNewtypeDeriving #-}
 module PrivateCloud.FileInfo where
 
+import Crypto.Hash
+import Crypto.MAC.HMAC
+import Data.ByteArray.Encoding
 import Data.Hashable
 import Data.Int
 import Data.Text.Buildable
@@ -9,6 +12,7 @@ import Foreign.C.Types
 import System.FilePath
 import System.Posix.Types
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 dbName :: FilePath
 dbName = ".privatecloud"
@@ -57,6 +61,9 @@ newtype Hash = Hash { hash2text :: T.Text }
 
 instance Show Hash where
     show (Hash h) = show h
+
+hmac2hash :: HMAC SHA512t_256 -> Hash
+hmac2hash = Hash . T.decodeUtf8 . convertToBase Base64
 
 data LocalFileInfo = LocalFileInfo
     { lfLength :: Word64
