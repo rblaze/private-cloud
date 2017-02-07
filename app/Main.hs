@@ -7,7 +7,9 @@ import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Strict
 import Data.Time.Clock
+import System.Exit
 import System.FilePath
+import System.FilePath.Glob
 import System.Log.Logger
 
 import PrivateCloud.Action
@@ -34,11 +36,20 @@ main = do
     updateGlobalLogger mainLoggerName (setLevel loglevel)
 
     noticeM mainLoggerName $ "#START #root " ++ root
+    exclusions <- forM (dbName : patterns) $ \pat -> do
+        case simplify <$> tryCompileWith compPosix pat of
+            Left errmsg -> do
+                errorM mainLoggerName $ "#EXCLUSION_ERROR #pattern " ++ show pat
+                    ++ " #msg " ++ errmsg
+                exitFailure
+            Right pattern -> do
+                infoM mainLoggerName $ "#EXCLUSION #pattern " ++ show pat
+                return pattern
 
     withDatabase (root </> dbName) $ \conn -> do
         noticeM mainLoggerName "#DBOPEN"
 
-        syncAllChanges root conn config
+        syncAllChanges root exclusions conn config
         startTime <- getCurrentTime
 
         void $ flip runStateT (startTime, startTime) $ forever $ handleAny
@@ -50,11 +61,11 @@ main = do
 
                 if sinceLastFullSync > fullSyncDelay
                     then do
-                        lift $ syncAllChanges root conn config
+                        lift $ syncAllChanges root exclusions conn config
                         modify $ \(_, lastTime) -> (currentTime, lastTime)
                     else lift $ do
                         noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
-                        syncRecentChanges root conn config
+                        syncRecentChanges root exclusions conn config
 
                 sinceLastCleanup <- diffUTCTime currentTime <$> gets snd
                 if sinceLastCleanup > cleanupDelay

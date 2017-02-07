@@ -87,7 +87,9 @@ removeFileInfo CloudInfo{..} (EntryName file) = do
 getAllServerFiles :: CloudInfo -> IO CloudFileList
 getAllServerFiles config = do
     sdbLogInfo "#DB_GET_ALL"
-    getServerFiles config ("select * from " <> ciDomain config)
+    files <- getServerFiles config ("select * from " <> ciDomain config)
+    sdbLogInfo $ "#DB_GET_ALL_RESULT #files " ++ show (length files)
+    return files
 
 -- get files updated in a last hour
 getRecentServerFiles :: CloudInfo -> IO CloudFileList
@@ -96,9 +98,11 @@ getRecentServerFiles config = do
     time <- getPOSIXTime
     let recentTime = time - recentAge
     let timestr = printTime recentTime
-    getServerFiles config $
+    files <- getServerFiles config $
         "select * from " <> ciDomain config <>
         " where recordmtime > '" <> timestr <> "'"
+    sdbLogInfo $ "#DB_GET_RECENT_RESULT #files " ++ show (length files)
+    return files
     where
     recentAge :: POSIXTime
     recentAge = 3600

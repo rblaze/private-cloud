@@ -7,6 +7,7 @@ module PrivateCloud.Action
 import Control.Monad
 import System.Directory
 import System.FilePath
+import System.FilePath.Glob
 import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws
@@ -17,25 +18,21 @@ import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
 import PrivateCloud.Sync
 
-syncAllChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncAllChanges root conn config =
-    syncChanges root conn config $ \localFiles dbFiles -> do
+syncAllChanges :: FilePath -> [Pattern] -> DbInfo -> CloudInfo -> IO ()
+syncAllChanges root exclusions conn config =
+    syncChanges root exclusions conn config $ \localFiles dbFiles -> do
         serverFiles <- getAllServerFiles config
-        -- XXX remove debugging
-        putStrLn $ "Total changes: " ++  show (length serverFiles)
         getAllFileChanges root localFiles dbFiles serverFiles
 
-syncRecentChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncRecentChanges root conn config =
-    syncChanges root conn config $ \localFiles dbFiles -> do
+syncRecentChanges :: FilePath -> [Pattern] -> DbInfo -> CloudInfo -> IO ()
+syncRecentChanges root exclusions conn config =
+    syncChanges root exclusions conn config $ \localFiles dbFiles -> do
         serverFiles <- getRecentServerFiles config
-        -- XXX remove debugging
-        putStrLn $ "Recent changes: " ++  show (length serverFiles)
         getRecentFileChanges root localFiles dbFiles serverFiles
 
-syncChanges :: FilePath -> DbInfo -> CloudInfo -> (LocalFileList -> DbFileList -> IO [FileAction]) -> IO ()
-syncChanges root conn config getUpdates = do
-    localFiles <- unrollTreeFiles <$> makeTree root
+syncChanges :: FilePath -> [Pattern] -> DbInfo -> CloudInfo -> (LocalFileList -> DbFileList -> IO [FileAction]) -> IO ()
+syncChanges root exclusions conn config getUpdates = do
+    localFiles <- unrollTreeFiles exclusions <$> makeTree root
     dbFiles <- getFileList conn
     updates <- getUpdates localFiles dbFiles
     -- XXX remove debugging

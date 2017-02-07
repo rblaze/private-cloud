@@ -10,9 +10,7 @@ import Data.Text.Buildable
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Word
-import Foreign.C.Types
 import System.FilePath
-import System.Posix.Types
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -49,9 +47,6 @@ utc2ts = Timestamp . round . utcTimeToPOSIXSeconds
 
 ts2utc :: Timestamp -> UTCTime 
 ts2utc (Timestamp ts) = posixSecondsToUTCTime $ realToFrac ts
-
-epoch2ts :: EpochTime -> Timestamp
-epoch2ts (CTime ts) = Timestamp ts
 
 -- | Type for S3 version id
 newtype VersionId = VersionId { version2text :: T.Text }
