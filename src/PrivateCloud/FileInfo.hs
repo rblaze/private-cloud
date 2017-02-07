@@ -7,6 +7,8 @@ import Data.ByteArray.Encoding
 import Data.Hashable
 import Data.Int
 import Data.Text.Buildable
+import Data.Time.Clock
+import Data.Time.Clock.POSIX
 import Data.Word
 import Foreign.C.Types
 import System.FilePath
@@ -42,11 +44,14 @@ newtype Timestamp = Timestamp Int64
 instance Show Timestamp where
     show (Timestamp ts) = show ts
 
+utc2ts :: UTCTime -> Timestamp
+utc2ts = Timestamp . round . utcTimeToPOSIXSeconds
+
+ts2utc :: Timestamp -> UTCTime 
+ts2utc (Timestamp ts) = posixSecondsToUTCTime $ realToFrac ts
+
 epoch2ts :: EpochTime -> Timestamp
 epoch2ts (CTime ts) = Timestamp ts
-
-ts2epoch :: Timestamp -> EpochTime 
-ts2epoch (Timestamp ts) = fromIntegral ts
 
 -- | Type for S3 version id
 newtype VersionId = VersionId { version2text :: T.Text }

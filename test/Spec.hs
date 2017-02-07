@@ -1,4 +1,4 @@
-{-# Language OverloadedStrings, LambdaCase, RecordWildCards #-}
+{-# Language CPP, OverloadedStrings, LambdaCase, RecordWildCards #-}
 import Control.Monad
 import Data.ByteArray.Encoding
 import System.Directory
@@ -6,7 +6,9 @@ import System.Directory.Tree
 import System.FilePath
 import System.IO
 import System.IO.Temp
+#ifndef WINBUILD
 import System.Posix.Files
+#endif
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Data.ByteString as BS
@@ -65,7 +67,9 @@ sampleTree = Dir { name = "root", contents =
                         , lfModTime = Timestamp 42
                         }
                     }
+#ifndef WINBUILD
                 , File { name = "pipe", file = Nothing }
+#endif
                 ]}
             , Dir { name = "e", contents =
                 [ Dir { name = "f", contents =
@@ -87,7 +91,9 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
     let tmpname = last $ splitDirectories tmpdir
     createDirectoryIfMissing True (tmpdir </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (tmpdir </> "a" </> "b" </> "e" </> "f")
+#ifndef WINBUILD
     createNamedPipe (tmpdir </> "a" </> "b" </> "c" </> "pipe") ownerReadMode
+#endif
     writeFile (tmpdir </> "a" </> "b" </> "c" </> "foo") "foo"
     writeFile (tmpdir </> "a" </> "b" </> "e" </> "f" </> "foo") "barr"
     tree <- makeTree tmpdir
@@ -101,7 +107,9 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
                             { name = "foo"
                             , file = Just LocalFileInfo { lfLength = 3, lfModTime = Timestamp 42 }
                             }
+#ifndef WINBUILD
                         , File { name = "pipe", file = Nothing }
+#endif
                         ]}
                     , Dir { name = "e", contents =
                         [ Dir { name = "f", contents =
@@ -232,7 +240,9 @@ testGetFileChanges :: Assertion
 testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withDatabase (root </> dbName) $ \conn -> do
     createDirectoryIfMissing True (root </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (root </> "a" </> "b" </> "e" </> "f")
+#ifndef WINBUILD
     createNamedPipe (root </> "a" </> "b" </> "c" </> "pipe") ownerReadMode
+#endif
     writeFile (root </> "a" </> "b" </> "c" </> "foo") "foo"
     writeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo") "barr"
 

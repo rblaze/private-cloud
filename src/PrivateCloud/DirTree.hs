@@ -1,10 +1,18 @@
-{-# Language OverloadedStrings, NamedFieldPuns, RecordWildCards #-}
-module PrivateCloud.DirTree where
+{-# Language CPP, OverloadedStrings, NamedFieldPuns, RecordWildCards #-}
+module PrivateCloud.DirTree
+    ( makeTree
+    , unrollTreeFiles
+    ) where
 
 import Data.List
 import Data.Function
+import System.Directory
 import System.Directory.Tree
+#ifdef WINBUILD
+import System.Win32.File
+#else
 import System.Posix.Files
+#endif
 import qualified Data.Text as T
 
 import PrivateCloud.FileInfo
@@ -25,12 +33,29 @@ sortDirByName = transformDir sortD
 
 makeTree :: FilePath -> IO (DirTree (Maybe LocalFileInfo))
 makeTree root = do
-    _ :/ tree <- flip readDirectoryWith root $ \path -> do
-        st <- getFileStatus path
-        return $ if isRegularFile st
-            then Just LocalFileInfo
-                { lfLength = fromIntegral $ fileSize st
-                , lfModTime = epoch2ts $ modificationTime st 
-                }
-            else Nothing
+    _ :/ tree <- flip readDirectoryWith root makeFileInfo
     return $ sortDirByName tree
+
+makeFileInfo :: FilePath -> IO (Maybe LocalFileInfo)
+#ifdef WINBUILD
+makeFileInfo path = do
+    isFile <- doesFileExist path
+    if isFile
+        then do
+            mtime <- getModificationTime path
+            size <- fadFileSize <$> getFileAttributesExStandard path
+            return $ Just LocalFileInfo
+                { lfLength = size
+                , lfModTime = utc2ts mtime
+                }
+        else return Nothing
+#else
+makeFileInfo path = do
+    st <- getFileStatus path
+    return $ if isRegularFile st
+        then Just LocalFileInfo
+            { lfLength = fromIntegral $ fileSize st
+            , lfModTime = epoch2ts $ modificationTime st 
+            }
+        else Nothing
+#endif

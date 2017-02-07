@@ -7,7 +7,6 @@ module PrivateCloud.Action
 import Control.Monad
 import System.Directory
 import System.FilePath
-import System.Posix.Files
 import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws
@@ -78,7 +77,7 @@ syncChanges root conn config getUpdates = do
             body <- downloadFile config faFilename (cfVersion faCloudInfo)
             createDirectoryIfMissing True (dropFileName path)
             BL.writeFile path body
-            setFileTimes path (ts2epoch $ cfModTime faCloudInfo) (ts2epoch $ cfModTime faCloudInfo)
+            setModificationTime path (ts2utc $ cfModTime faCloudInfo)
             putFileInfo conn faFilename
                 DbFileInfo
                     { dfHash = cfHash faCloudInfo
@@ -86,9 +85,8 @@ syncChanges root conn config getUpdates = do
                     , dfModTime = cfModTime faCloudInfo
                     }
         UpdateLocalMetadata{..} -> do
-            setFileTimes (root </> entry2path faFilename)
-                (ts2epoch $ cfModTime faCloudInfo)
-                (ts2epoch $ cfModTime faCloudInfo)
+            setModificationTime (root </> entry2path faFilename)
+                (ts2utc $ cfModTime faCloudInfo)
             putFileInfo conn faFilename
                 DbFileInfo
                     { dfHash = cfHash faCloudInfo
