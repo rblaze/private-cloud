@@ -182,24 +182,33 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                     -- download it
                     noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ show filename ++ " #size " ++ show cfLength
                     return $ Just $ UpdateLocalFile filename cloudinfo
-        (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) -> do
+        (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) | onlyRecentServerFiles -> do
             -- file deleted on server or we have no server status
             -- check if it was modified locally
-            fileChanged <- isLocalFileChanged filename lfLength dfLength dfHash
+            fileChanged <- isLocalFileChangedFast filename lfLength dfLength lfModTime dfModTime dfHash
             if | fileChanged -> do
                     -- local file changed, upload to cloud in any case
                     logLocalChange filename dfLength lfLength
                     return $ Just $ UpdateCloudFile filename localinfo
-               | not onlyRecentServerFiles -> do
-                    -- no local change, for sure absent on server, delete
-                    logServerDelete filename
-                    return $ Just $ DeleteLocalFile filename
                | lfModTime /= dfModTime -> do
                     -- metadata updated, was not recently updated on server
                     -- try to update metadata, it will fail if file deleted
                     logLocalMetadataChange filename dfModTime lfModTime
                     return $ Just $ UpdateCloudMetadata filename localinfo dfHash
                | otherwise -> return Nothing -- no change at all
+        (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) -> do
+                -- file deleted on server
+                -- check if it was modified locally
+            fileChanged <- isLocalFileChanged filename lfLength dfLength dfHash
+            if fileChanged
+                then do
+                    -- local file changed, upload to cloud in any case
+                    logLocalChange filename dfLength lfLength
+                    return $ Just $ UpdateCloudFile filename localinfo
+                else do
+                    -- no local change, for sure absent on server, delete
+                    logServerDelete filename
+                    return $ Just $ DeleteLocalFile filename
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Just CloudDeleteMarker) -> do
             -- file deleted on server
             -- check if it was modified locally
@@ -217,11 +226,7 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
             let CloudFileInfo{..} = cloudinfo
             -- let's not check file hash every time
             -- pretend that if size and mod time are the same, there were no changes
-            localFileUpdated <- if lfLength == dfLength && lfModTime == dfModTime
-                then return False
-                else do
-                    localHash <- getFileHash (root </> entry2path filename)
-                    return $ localHash /= dfHash
+            localFileUpdated <- isLocalFileChangedFast filename lfLength dfLength lfModTime dfModTime dfHash
             let localMetadataUpdated = lfModTime /= dfModTime
             let cloudFileUpdated = cfHash /= dfHash
             let cloudMetadataUpdated = cfModTime /= dfModTime
@@ -246,11 +251,17 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
     return $ catMaybes changes
     where
     files = zipLists3 localFiles dbFiles cloudFiles
+    isLocalFileChangedFast filename newLength oldLength newTs oldTs oldHash
+        | newLength /= oldLength = return True  -- length changed => file changed
+        | newTs == oldTs = return False         -- length is the same and ts is the same => nothing changed
+        | otherwise = isLocalFileContentChanged filename oldHash
     isLocalFileChanged filename newLength oldLength oldHash
         | newLength /= oldLength = return True
-        | otherwise = do
-            localHash <- getFileHash (root </> entry2path filename)
-            return $ localHash /= oldHash
+        | otherwise = isLocalFileContentChanged filename oldHash
+    isLocalFileContentChanged filename oldHash = do
+        infoM syncLoggerName $ "#CHECK_HASH #file " ++ show filename
+        localHash <- getFileHash (root </> entry2path filename)
+        return $ localHash /= oldHash
     syncModTimes filename hash localinfo cloudinfo = do
         let LocalFileInfo{..} = localinfo
         let CloudFileInfo{..} = cloudinfo
