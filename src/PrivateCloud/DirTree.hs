@@ -6,10 +6,10 @@ module PrivateCloud.DirTree
 
 import Data.List
 import Data.Function
-import System.Directory
 import System.Directory.Tree
 import System.FilePath.Glob
 #ifdef WINBUILD
+import System.Directory
 import System.Win32.File
 #else
 import System.Posix.Files

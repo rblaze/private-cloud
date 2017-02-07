@@ -10,7 +10,9 @@ import Data.Text.Buildable
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Word
+import Foreign.C.Types
 import System.FilePath
+import System.Posix.Types
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -41,6 +43,9 @@ newtype Timestamp = Timestamp Int64
 
 instance Show Timestamp where
     show (Timestamp ts) = show ts
+
+epoch2ts :: EpochTime -> Timestamp
+epoch2ts (CTime ts) = Timestamp ts
 
 utc2ts :: UTCTime -> Timestamp
 utc2ts = Timestamp . round . utcTimeToPOSIXSeconds
