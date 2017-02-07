@@ -30,7 +30,7 @@ getOptions = do
             , syncInterval = 1 &= typ "MIN" &= help "sync interval (1m)"
             , fullSyncInterval = 30 &= typ "MIN" &= help "full sync interval (30m)"
             , cleanupInterval = 720 &= typ "MIN" &= help "database cleanup interval (12h)"
-            , patterns = [] &= typ "PATTERN" &= help "file masks to ignore"
+            , patterns = [".*"] &= typ "PATTERN" &= help "file masks to ignore (.*)"
             }
             &= helpArg [name "h"]
             &= summary ("PrivateCloud " ++ showVersion version)
