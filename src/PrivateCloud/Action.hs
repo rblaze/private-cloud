@@ -22,14 +22,16 @@ syncAllChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
 syncAllChanges root conn config =
     syncChanges root conn config $ \localFiles dbFiles -> do
         serverFiles <- getAllServerFiles config
-        print serverFiles
+        -- XXX remove debugging
+        putStrLn $ "Total changes: " ++  show (length serverFiles)
         getAllFileChanges root localFiles dbFiles serverFiles
 
 syncRecentChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
 syncRecentChanges root conn config =
     syncChanges root conn config $ \localFiles dbFiles -> do
         serverFiles <- getRecentServerFiles config
-        print serverFiles
+        -- XXX remove debugging
+        putStrLn $ "Recent changes: " ++  show (length serverFiles)
         getRecentFileChanges root localFiles dbFiles serverFiles
 
 syncChanges :: FilePath -> DbInfo -> CloudInfo -> (LocalFileList -> DbFileList -> IO [FileAction]) -> IO ()
@@ -37,6 +39,7 @@ syncChanges root conn config getUpdates = do
     localFiles <- unrollTreeFiles <$> makeTree root
     dbFiles <- getFileList conn
     updates <- getUpdates localFiles dbFiles
+    -- XXX remove debugging
     print updates
 
     forM_ updates $ \case

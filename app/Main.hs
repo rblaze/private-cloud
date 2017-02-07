@@ -28,6 +28,8 @@ main = do
 
     print options
     let Options{..} = options
+    let fullSyncDelay = fromIntegral (fullSyncInterval * 60)
+    let cleanupDelay = fromIntegral (cleanupInterval * 60)
 
     updateGlobalLogger mainLoggerName (setLevel loglevel)
 
@@ -44,16 +46,21 @@ main = do
             do
                 lift $ threadDelay (60000000 * fromIntegral syncInterval)
                 currentTime <- lift $ getCurrentTime
-                lastFullSyncTime <- gets fst
+                sinceLastFullSync <- diffUTCTime currentTime <$> gets fst
 
-                if diffUTCTime currentTime lastFullSyncTime > fromIntegral fullSyncInterval
+                if sinceLastFullSync > fullSyncDelay
                     then do
                         lift $ syncAllChanges root conn config
                         modify $ \(_, lastTime) -> (currentTime, lastTime)
-                    else lift $ syncRecentChanges root conn config
+                    else lift $ do
+                        noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
+                        syncRecentChanges root conn config
 
-                lastCleanupTime <- gets snd
-                when (diffUTCTime currentTime lastCleanupTime > fromIntegral cleanupInterval) $ do
-                    lift $ deleteOldVersions config
-                    lift $ deleteOldDbRecords config
-                    modify $ \(lastTime, _) -> (lastTime, currentTime)
+                sinceLastCleanup <- diffUTCTime currentTime <$> gets snd
+                if sinceLastCleanup > cleanupDelay
+                    then do
+                        lift $ deleteOldVersions config
+                        lift $ deleteOldDbRecords config
+                        modify $ \(lastTime, _) -> (lastTime, currentTime)
+                    else
+                        lift $ noticeM mainLoggerName $ "#TIMER #tillNextCleanup " ++ show (cleanupDelay - sinceLastCleanup)
