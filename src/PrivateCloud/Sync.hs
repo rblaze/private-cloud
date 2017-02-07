@@ -1,5 +1,10 @@
 {-# Language MultiWayIf, LambdaCase, RecordWildCards #-}
-module PrivateCloud.Sync where
+module PrivateCloud.Sync
+    ( FileAction(..)
+    , getAllFileChanges
+    , getRecentFileChanges
+    , zipLists3
+    ) where
 
 import Control.Monad
 import Data.Maybe

@@ -4,20 +4,17 @@ module Main where
 import Control.Concurrent
 import Control.Exception.Safe
 import Control.Monad
-import System.Directory
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.State.Strict
+import Data.Time.Clock
 import System.FilePath
 import System.Log.Logger
-import System.Posix.Files
-import qualified Data.ByteString.Lazy as BL
 
+import PrivateCloud.Action
 import PrivateCloud.Aws
---import PrivateCloud.Aws.Cleanup
-import PrivateCloud.Aws.S3
-import PrivateCloud.Aws.SimpleDb
-import PrivateCloud.DirTree
+import PrivateCloud.Aws.Cleanup
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
-import PrivateCloud.Sync
 
 import Options
 
@@ -29,99 +26,34 @@ main = do
     options <- getOptions
     config <- defaultCloudInfo
 
-    updateGlobalLogger mainLoggerName (setLevel (loglevel options))
+    print options
+    let Options{..} = options
 
-    let rootDir = root options
-    noticeM mainLoggerName $ "#START #root " ++ rootDir
+    updateGlobalLogger mainLoggerName (setLevel loglevel)
 
-    withDatabase (rootDir </> dbName) $ \conn -> do
+    noticeM mainLoggerName $ "#START #root " ++ root
+
+    withDatabase (root </> dbName) $ \conn -> do
         noticeM mainLoggerName "#DBOPEN"
 
-        syncAllChanges rootDir conn config
+        syncAllChanges root conn config
+        startTime <- getCurrentTime
 
-        forever $ handleAny
-            (\e -> errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
+        void $ flip runStateT (startTime, startTime) $ forever $ handleAny
+            (\e -> lift $ errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
             do
-                syncRecentChanges rootDir conn config
-                -- FIXME run cleanup rarely
---                deleteOldVersions config
---                deleteOldDbRecords config
-                threadDelay 10000000
+                lift $ threadDelay (60000000 * fromIntegral syncInterval)
+                currentTime <- lift $ getCurrentTime
+                lastFullSyncTime <- gets fst
 
-syncAllChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncAllChanges rootDir conn config =
-    syncChanges rootDir conn config $ \localFiles dbFiles -> do
-        serverFiles <- getAllServerFiles config
-        print serverFiles
-        getAllFileChanges rootDir localFiles dbFiles serverFiles
+                if diffUTCTime currentTime lastFullSyncTime > fromIntegral fullSyncInterval
+                    then do
+                        lift $ syncAllChanges root conn config
+                        modify $ \(_, lastTime) -> (currentTime, lastTime)
+                    else lift $ syncRecentChanges root conn config
 
-syncRecentChanges :: FilePath -> DbInfo -> CloudInfo -> IO ()
-syncRecentChanges rootDir conn config =
-    syncChanges rootDir conn config $ \localFiles dbFiles -> do
-        serverFiles <- getRecentServerFiles config
-        print serverFiles
-        getRecentFileChanges rootDir localFiles dbFiles serverFiles
-
-syncChanges :: FilePath -> DbInfo -> CloudInfo -> (LocalFileList -> DbFileList -> IO [FileAction]) -> IO ()
-syncChanges rootDir conn config getUpdates = do
-    localFiles <- unrollTreeFiles <$> makeTree rootDir
-    dbFiles <- getFileList conn
-    updates <- getUpdates localFiles dbFiles
-    print updates
-
-    forM_ updates $ \case
-        ResolveConflict{..} ->
-            error "Aaaaaaa!!!!!!"
-        UpdateCloudFile{..} -> do
-            let path = rootDir </> entry2path faFilename
-            (version, len, hash) <- uploadFile config faFilename path
-            let cloudinfo = CloudFileInfo
-                    { cfHash = hash
-                    , cfModTime = lfModTime faLocalInfo
-                    , cfLength = len
-                    , cfVersion = version
-                    }
-            uploadFileInfo config faFilename cloudinfo
-            let dbinfo = DbFileInfo
-                    { dfHash = hash
-                    , dfModTime = lfModTime faLocalInfo
-                    , dfLength = len
-                    }
-            putFileInfo conn faFilename dbinfo
-        UpdateCloudMetadata{..} -> do
-            let dbinfo = DbFileInfo
-                    { dfHash = faExpectedHash
-                    , dfModTime = lfModTime faLocalInfo
-                    , dfLength = lfLength faLocalInfo
-                    }
-            uploadFileMetadata config faFilename dbinfo
-            putFileInfo conn faFilename dbinfo
-        DeleteCloudFile{..} -> do
-            deleteFile config faFilename
-            uploadDeleteMarker config faFilename
-            deleteFileInfo conn faFilename
-        UpdateLocalFile{..} -> do
-            let path = rootDir </> entry2path faFilename
-            body <- downloadFile config faFilename (cfVersion faCloudInfo)
-            createDirectoryIfMissing True (dropFileName path)
-            BL.writeFile path body
-            setFileTimes path (ts2epoch $ cfModTime faCloudInfo) (ts2epoch $ cfModTime faCloudInfo)
-            putFileInfo conn faFilename
-                DbFileInfo
-                    { dfHash = cfHash faCloudInfo
-                    , dfLength = cfLength faCloudInfo
-                    , dfModTime = cfModTime faCloudInfo
-                    }
-        UpdateLocalMetadata{..} -> do
-            setFileTimes (rootDir </> entry2path faFilename)
-                (ts2epoch $ cfModTime faCloudInfo)
-                (ts2epoch $ cfModTime faCloudInfo)
-            putFileInfo conn faFilename
-                DbFileInfo
-                    { dfHash = cfHash faCloudInfo
-                    , dfLength = cfLength faCloudInfo
-                    , dfModTime = cfModTime faCloudInfo
-                    }
-        DeleteLocalFile{..} -> do
-            removeFile (rootDir </> entry2path faFilename)
-            deleteFileInfo conn faFilename
+                lastCleanupTime <- gets snd
+                when (diffUTCTime currentTime lastCleanupTime > fromIntegral cleanupInterval) $ do
+                    lift $ deleteOldVersions config
+                    lift $ deleteOldDbRecords config
+                    modify $ \(lastTime, _) -> (lastTime, currentTime)
