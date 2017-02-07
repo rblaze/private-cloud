@@ -1,19 +1,23 @@
 {-# Language OverloadedStrings, NamedFieldPuns, RecordWildCards #-}
-module PrivateCloud.DirTree where
+module PrivateCloud.DirTree
+    ( makeTree
+    , unrollTreeFiles
+    ) where
 
 import Data.List
 import Data.Function
 import System.Directory.Tree
+import System.FilePath.Glob
 import System.Posix.Files
-import qualified Data.Text as T
 
 import PrivateCloud.FileInfo
 
-unrollTreeFiles :: DirTree (Maybe LocalFileInfo) -> LocalFileList
-unrollTreeFiles tree = filter (\(f, _) -> f /= dbEntry) $ go (EntryName "") tree{name = ""}
+unrollTreeFiles :: [Pattern] -> DirTree (Maybe LocalFileInfo) -> LocalFileList
+unrollTreeFiles exclusions tree = go (EntryName "") tree{name = ""}
     where
-    dbEntry = EntryName (T.pack dbName)
-    go base File{name, file = Just f} = [(base <//> path2entry name, f)]
+    go base File{name, file = Just f}
+        | any (flip match name) exclusions = []
+        | otherwise = [(base <//> path2entry name, f)]
     go base Dir{..} = concatMap (go $ base <//> path2entry name) contents
     go _ _ = []
 

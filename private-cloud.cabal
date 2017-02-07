@@ -27,6 +27,7 @@ library
                        PrivateCloud.Sync
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5
+                     , Glob
                      , aws >= 0.16
                      , bytestring
                      , conduit
@@ -58,6 +59,7 @@ executable private-cloud-exe
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -W -Wall
   build-depends:       base
+                     , Glob
                      , bytestring
                      , cmdargs
                      , directory
@@ -77,6 +79,7 @@ test-suite private-cloud-test
   hs-source-dirs:      test
   main-is:             Spec.hs
   build-depends:       base
+                     , Glob
                      , bytestring
                      , directory
                      , directory-tree

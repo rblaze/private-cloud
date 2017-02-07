@@ -4,6 +4,7 @@ import Data.ByteArray.Encoding
 import System.Directory
 import System.Directory.Tree
 import System.FilePath
+import System.FilePath.Glob
 import System.IO
 import System.IO.Temp
 import System.Posix.Files
@@ -46,6 +47,9 @@ tests = testGroup "PrivateCloud tests"
         [ testCase "getFileChanges" testGetFileChanges
         ]
     ]
+
+dbPattern :: Pattern
+dbPattern = compile dbName
 
 normalizeTree :: DirTree (Maybe LocalFileInfo) -> DirTree (Maybe LocalFileInfo)
 normalizeTree = fmap (fmap fixModTime)
@@ -118,7 +122,7 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
 
 testUnrollTreeFiles :: Assertion
 testUnrollTreeFiles = do
-    let files = unrollTreeFiles sampleTree
+    let files = unrollTreeFiles [dbPattern] sampleTree
     assertEqual "Incorrect files extracted"
         [ (EntryName "a/b/c/foo", LocalFileInfo { lfLength = 3, lfModTime = Timestamp 42 })
         , (EntryName "a/b/e/f/foo", LocalFileInfo { lfLength = 4, lfModTime = Timestamp 18 })
@@ -237,7 +241,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
     writeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo") "barr"
 
     let getChanges' func serverFiles = do
-            localFiles <- map func . unrollTreeFiles . normalizeTree <$> makeTree root
+            localFiles <- map func . unrollTreeFiles [dbPattern] . normalizeTree <$> makeTree root
             dbFiles <- getFileList conn
             getAllFileChanges root localFiles dbFiles serverFiles
 
