@@ -27,7 +27,7 @@ library
                        PrivateCloud.Sync
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5
-                     , aws
+                     , aws >= 0.16
                      , bytestring
                      , conduit
                      , conduit-combinators
