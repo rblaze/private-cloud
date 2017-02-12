@@ -17,6 +17,7 @@ import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws
 import PrivateCloud.FileInfo
+import PrivateCloud.ServiceConfig
 
 s3LoggerName :: String
 s3LoggerName = "PrivateCloud.AWS.S3"
@@ -33,8 +34,8 @@ s3LogCritical = liftIO . criticalM s3LoggerName
 hmacKey :: BS.ByteString
 hmacKey = BS.pack [102,111,111,98,97,114]
 
-uploadFile :: CloudInfo -> EntryName -> FilePath -> IO (VersionId, Word64, Hash)
-uploadFile CloudInfo{..} (EntryName filename) localPath = do
+uploadFile :: ServiceConfig -> EntryName -> FilePath -> IO (VersionId, Word64, Hash)
+uploadFile ServiceConfig{..} (EntryName filename) localPath = do
     s3LogNotice $ "#S3UPLOAD_START #file " ++ show filename
     -- S3 requires Content-Length header for uploads, and to provide 
     -- it for encrypted data it is necessary to encrypt and keep in memory
@@ -56,28 +57,28 @@ uploadFile CloudInfo{..} (EntryName filename) localPath = do
     where
     chunkSize = 6 * 1024 * 1024
     uploadSink = do
-        uploadId <- liftIO $ imurUploadId <$> memoryAws ciConfig defServiceConfig ciManager (postInitiateMultipartUpload ciBucket filename)
+        uploadId <- liftIO $ imurUploadId <$> memoryAws scConfig defServiceConfig scManager (postInitiateMultipartUpload scBucket filename)
         etags <- chunkedConduit chunkSize
             =$= mapMC (\chunk -> s3LogInfo "#S3UPLOAD_CHUNK" >> return chunk)
-            =$= putConduit ciConfig defServiceConfig ciManager ciBucket filename uploadId
+            =$= putConduit scConfig defServiceConfig scManager scBucket filename uploadId
             =$= sinkList
         s3LogInfo $ "#S3UPLOAD_COMBINE #file " ++ show filename
-        liftIO $ sendEtag ciConfig defServiceConfig ciManager ciBucket filename uploadId etags
+        liftIO $ sendEtag scConfig defServiceConfig scManager scBucket filename uploadId etags
 
-deleteFile :: CloudInfo -> EntryName -> IO ()
-deleteFile CloudInfo{..} (EntryName filename) = do
-    let command = DeleteObject { doObjectName = filename, doBucket = ciBucket }
+deleteFile :: ServiceConfig -> EntryName -> IO ()
+deleteFile ServiceConfig{..} (EntryName filename) = do
+    let command = DeleteObject { doObjectName = filename, doBucket = scBucket }
     s3LogNotice $ "#S3DELETE #file " ++ show filename
-    void $ memoryAws ciConfig defServiceConfig ciManager command
+    void $ memoryAws scConfig defServiceConfig scManager command
 
-downloadFile :: CloudInfo -> EntryName -> VersionId -> IO BL.ByteString
-downloadFile CloudInfo{..} (EntryName filename) (VersionId version) = do
-    let command = (getObject ciBucket filename)
+downloadFile :: ServiceConfig -> EntryName -> VersionId -> IO BL.ByteString
+downloadFile ServiceConfig{..} (EntryName filename) (VersionId version) = do
+    let command = (getObject scBucket filename)
                     { goVersionId = Just version }
     s3LogNotice $ "#S3DOWNLOAD #file " ++ show filename
     body <- runResourceT $ do
         GetObjectResponse { gorResponse = resp } 
-            <- pureAws ciConfig defServiceConfig ciManager command
+            <- pureAws scConfig defServiceConfig scManager command
         -- XXX replace with write to temp file, then move to original.
         -- this will prevent partial downloads and memory overuse.
         responseBody resp $$+- sinkLazy

@@ -8,15 +8,13 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Strict
 import Data.Time.Clock
 import System.Exit
-import System.FilePath
 import System.FilePath.Glob
 import System.Log.Logger
 
 import PrivateCloud.Action
-import PrivateCloud.Aws
 import PrivateCloud.Aws.Cleanup
-import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
+import PrivateCloud.ServiceConfig
 
 import Options
 
@@ -26,9 +24,8 @@ mainLoggerName = "PrivateCloud"
 main :: IO ()
 main = do
     options <- getOptions
-    config <- defaultCloudInfo
-
     print options
+
     let Options{..} = options
     let fullSyncDelay = fromIntegral (fullSyncInterval * 60)
     let cleanupDelay = fromIntegral (cleanupInterval * 60)
@@ -36,6 +33,7 @@ main = do
     updateGlobalLogger mainLoggerName (setLevel loglevel)
 
     noticeM mainLoggerName $ "#START #root " ++ root
+
     exclusions <- forM (dbName : patterns) $ \pat -> do
         case simplify <$> tryCompileWith compPosix pat of
             Left errmsg -> do
@@ -46,10 +44,11 @@ main = do
                 infoM mainLoggerName $ "#EXCLUSION #pattern " ++ show pat
                 return pattern
 
-    withDatabase (root </> dbName) $ \conn -> do
+    withServiceConfig root "devtest" exclusions $ \config -> do
         noticeM mainLoggerName "#DBOPEN"
+        initDatabase config
 
-        syncAllChanges root exclusions conn config
+        syncAllChanges config
         startTime <- getCurrentTime
 
         void $ flip runStateT (startTime, startTime) $ forever $ handleAny
@@ -61,11 +60,11 @@ main = do
 
                 if sinceLastFullSync > fullSyncDelay
                     then do
-                        lift $ syncAllChanges root exclusions conn config
+                        lift $ syncAllChanges config
                         modify $ \(_, lastTime) -> (currentTime, lastTime)
                     else lift $ do
                         noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
-                        syncRecentChanges root exclusions conn config
+                        syncRecentChanges config
 
                 sinceLastCleanup <- diffUTCTime currentTime <$> gets snd
                 if sinceLastCleanup > cleanupDelay

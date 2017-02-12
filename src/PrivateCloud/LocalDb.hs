@@ -4,22 +4,16 @@ module PrivateCloud.LocalDb where
 import Database.SQLite.Simple
 
 import PrivateCloud.FileInfo
+import PrivateCloud.ServiceConfig
 
-data DbInfo = DbInfo
-    { dbConnection :: Connection
-    }
+initDatabase :: ServiceConfig -> IO ()
+initDatabase ServiceConfig{..} = do
+    withTransaction scConnection $
+        execute_ scConnection "CREATE TABLE IF NOT EXISTS localFiles (file TEXT PRIMARY KEY NOT NULL, lastSyncedHash TEXT, lastSyncedSize INT, lastSyncedModTime INT)"
 
-withDatabase :: FilePath -> (DbInfo -> IO a) -> IO a
-withDatabase path f =
-    withConnection path $ \conn -> do
-        withTransaction conn $
-            execute_ conn "CREATE TABLE IF NOT EXISTS localFiles (file TEXT PRIMARY KEY NOT NULL, lastSyncedHash TEXT, lastSyncedSize INT, lastSyncedModTime INT)"
-        let db = DbInfo { dbConnection = conn }
-        f db
-
-getFileList :: DbInfo -> IO DbFileList
-getFileList DbInfo{ dbConnection = conn } =
-    map convertRow <$> query_ conn "SELECT file, lastSyncedHash, lastSyncedSize, lastSyncedModTime FROM localFiles ORDER BY file"
+getFileList :: ServiceConfig -> IO DbFileList
+getFileList ServiceConfig{..} = do
+    map convertRow <$> query_ scConnection "SELECT file, lastSyncedHash, lastSyncedSize, lastSyncedModTime FROM localFiles ORDER BY file"
     where
     convertRow (file, hash, size, ts) =
         ( EntryName file
@@ -30,11 +24,13 @@ getFileList DbInfo{ dbConnection = conn } =
             }
         )
 
-putFileInfo :: DbInfo -> EntryName -> DbFileInfo -> IO ()
-putFileInfo DbInfo{ dbConnection = conn } (EntryName file) DbFileInfo{..} = withTransaction conn $ do
-    let Timestamp ts = dfModTime
-    execute conn "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize, lastSyncedModTime) VALUES (?,?,?,?)" (file, hash2text dfHash, dfLength, ts)
+putFileInfo :: ServiceConfig -> EntryName -> DbFileInfo -> IO ()
+putFileInfo ServiceConfig{..} (EntryName file) DbFileInfo{..} =
+    withTransaction scConnection $ do
+        let Timestamp ts = dfModTime
+        execute scConnection "INSERT OR REPLACE INTO localFiles (file, lastSyncedHash, lastSyncedSize, lastSyncedModTime) VALUES (?,?,?,?)" (file, hash2text dfHash, dfLength, ts)
 
-deleteFileInfo :: DbInfo -> EntryName -> IO ()
-deleteFileInfo DbInfo{ dbConnection = conn } (EntryName file) = withTransaction conn $
-    execute conn "DELETE FROM localFiles WHERE file = ?" (Only file)
+deleteFileInfo :: ServiceConfig -> EntryName -> IO ()
+deleteFileInfo ServiceConfig{..} (EntryName file) =
+    withTransaction scConnection $
+        execute scConnection "DELETE FROM localFiles WHERE file = ?" (Only file)

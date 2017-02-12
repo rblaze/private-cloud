@@ -21,6 +21,7 @@ import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
 import PrivateCloud.Sync
+import PrivateCloud.ServiceConfig
 
 main :: IO ()
 main = defaultMain tests
@@ -148,100 +149,97 @@ testFileHMAC = withSystemTempFile "hmactest.dat" $ \filename h -> do
     assertEqual "HMAC mismatch" "ab78ef7a3a7b02b2ef50ee1a17e43ae0c134e0bece468b047780626264301831" (printableHMAC :: BS.ByteString)
 
 testDbAddRead :: Assertion
-testDbAddRead = withSystemTempFile "sqlite.test" $ \filename h -> do
-    hClose h
-    removeFile filename
+testDbAddRead = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    [(fname, info)] <- withDatabase filename $ \conn -> do
-        putFileInfo conn (EntryName "foo") DbFileInfo
+    [(fname, info)] <- withServiceConfig tmpdir "test" [] $ \config -> do
+        initDatabase config
+        putFileInfo config (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-        getFileList conn
+        getFileList config
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
 
 testDbDoubleInit :: Assertion
-testDbDoubleInit = withSystemTempFile "sqlite.test" $ \filename h -> do
-    hClose h
-    removeFile filename
+testDbDoubleInit = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    withDatabase filename $ \conn ->
-        putFileInfo conn (EntryName "foo") DbFileInfo
+    withServiceConfig tmpdir "test" [] $ \config -> do
+        initDatabase config
+        putFileInfo config (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-    [(fname, info)] <- withDatabase filename $ \conn ->
-        getFileList conn
+        initDatabase config
+    [(fname, info)] <- withServiceConfig tmpdir "test" [] getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
 
 testDbUpdate :: Assertion
-testDbUpdate = withSystemTempFile "sqlite.test" $ \filename h -> do
-    hClose h
-    removeFile filename
+testDbUpdate = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
     let secondHash = Hash "78901"
     let secondSize = 1024
     let secondts = Timestamp 5436
-    withDatabase filename $ \conn -> do
-        putFileInfo conn (EntryName "foo") DbFileInfo
+    withServiceConfig tmpdir "test" [] $ \config -> do
+        initDatabase config
+        putFileInfo config (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-        putFileInfo conn (EntryName "foo") DbFileInfo
+        putFileInfo config (EntryName "foo") DbFileInfo
             { dfHash = secondHash
             , dfLength = secondSize
             , dfModTime = secondts
             }
-    [(fname, info)] <- withDatabase filename getFileList
+    [(fname, info)] <- withServiceConfig tmpdir "test" [] getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" secondHash (dfHash info)
     assertEqual "invalid size read" secondSize (dfLength info)
     assertEqual "invalid modtime read" secondts (dfModTime info)
 
 testDbDelete :: Assertion
-testDbDelete = withSystemTempFile "sqlite.test" $ \filename h -> do
-    hClose h
-    removeFile filename
+testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    withDatabase filename $ \conn -> do
-        v <- getFileList conn
+    withServiceConfig tmpdir "test" [] $ \config -> do
+        initDatabase config
+        v <- getFileList config
         assertEqual "unexpected data found" [] v
-        putFileInfo conn (EntryName "foo") DbFileInfo
+        putFileInfo config (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-    [(fname, info)] <- withDatabase filename $ \conn -> do
-        v <- getFileList conn
-        deleteFileInfo conn (EntryName "foo")
+    [(fname, info)] <- withServiceConfig tmpdir "test" [] $ \config -> do
+        v <- getFileList config
+        deleteFileInfo config (EntryName "foo")
         return v
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
 
-    v <- withDatabase filename getFileList
+    v <- withServiceConfig tmpdir "test" [] getFileList
     assertEqual "data found after delete" [] v
 
 testGetFileChanges :: Assertion
-testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withDatabase (root </> dbName) $ \conn -> do
+testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withServiceConfig root "test" [dbPattern] $ \config -> do
+    initDatabase config
     createDirectoryIfMissing True (root </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (root </> "a" </> "b" </> "e" </> "f")
 #ifndef WINBUILD
@@ -252,8 +250,8 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     let getChanges' func serverFiles = do
             localFiles <- map func . unrollTreeFiles [dbPattern] . normalizeTree <$> makeTree root
-            dbFiles <- getFileList conn
-            getAllFileChanges root localFiles dbFiles serverFiles
+            dbFiles <- getFileList config
+            getAllFileChanges config localFiles dbFiles serverFiles
 
     let getChanges = getChanges' id
 
@@ -273,16 +271,16 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     let updateDb changes =
             forM_ changes $ \case
-                UpdateLocalFile{..} -> putFileInfo conn faFilename (cloud2db faCloudInfo)
-                UpdateLocalMetadata{..} -> putFileInfo conn faFilename (cloud2db faCloudInfo)
-                DeleteLocalFile{..} -> deleteFileInfo conn faFilename
+                UpdateLocalFile{..} -> putFileInfo config faFilename (cloud2db faCloudInfo)
+                UpdateLocalMetadata{..} -> putFileInfo config faFilename (cloud2db faCloudInfo)
+                DeleteLocalFile{..} -> deleteFileInfo config faFilename
                 UpdateCloudFile{..} -> do
                     info <- local2db faFilename faLocalInfo
-                    putFileInfo conn faFilename info
+                    putFileInfo config faFilename info
                 UpdateCloudMetadata{..} -> do
                     info <- local2db faFilename faLocalInfo
-                    putFileInfo conn faFilename info
-                DeleteCloudFile{..} -> deleteFileInfo conn faFilename
+                    putFileInfo config faFilename info
+                DeleteCloudFile{..} -> deleteFileInfo config faFilename
                 _ -> return ()
 
     let check msg server golden = do

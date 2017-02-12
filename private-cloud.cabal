@@ -7,7 +7,7 @@ license:             Apache-2.0
 license-file:        LICENSE
 author:              Andrey Sverdlichenko
 maintainer:          blaze@ruddy.ru
-copyright:           2016 Andrey Sverdlichenko
+copyright:           2017 Andrey Sverdlichenko
 category:            Network
 build-type:          Simple
 extra-source-files:  README.md
@@ -24,6 +24,7 @@ library
                        PrivateCloud.DirTree
                        PrivateCloud.FileInfo
                        PrivateCloud.LocalDb
+                       PrivateCloud.ServiceConfig
                        PrivateCloud.Sync
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5

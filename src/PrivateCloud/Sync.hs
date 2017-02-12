@@ -14,6 +14,7 @@ import System.Log.Logger
 
 import PrivateCloud.Crypto
 import PrivateCloud.FileInfo
+import PrivateCloud.ServiceConfig
 
 syncLoggerName :: String
 syncLoggerName = "PrivateCloud.Sync"
@@ -108,11 +109,11 @@ zipLists3 as bs cs = (firstName, aval, bval, cval) : zipLists3 as' bs' cs'
     headMay [] = Nothing
     headMay (x:_) = Just x
 
-getAllFileChanges :: FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
-getAllFileChanges = getFileChanges False
+getAllFileChanges :: ServiceConfig -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
+getAllFileChanges ServiceConfig{..} = getFileChanges False scRoot
 
-getRecentFileChanges :: FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
-getRecentFileChanges = getFileChanges True
+getRecentFileChanges :: ServiceConfig -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
+getRecentFileChanges ServiceConfig{..} = getFileChanges True scRoot
 
 getFileChanges :: Bool -> FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
 getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do

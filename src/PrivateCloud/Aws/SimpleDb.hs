@@ -19,8 +19,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as T
 
-import PrivateCloud.Aws
 import PrivateCloud.FileInfo
+import PrivateCloud.ServiceConfig
 
 sdbLoggerName :: String
 sdbLoggerName = "PrivateCloud.AWS.SimpleDb"
@@ -28,8 +28,8 @@ sdbLoggerName = "PrivateCloud.AWS.SimpleDb"
 sdbLogInfo :: MonadIO m => String -> m ()
 sdbLogInfo = liftIO . infoM sdbLoggerName
 
-uploadFileInfo :: CloudInfo -> EntryName -> CloudFileInfo -> IO ()
-uploadFileInfo CloudInfo{..} (EntryName file) CloudFileInfo{..} = do
+uploadFileInfo :: ServiceConfig -> EntryName -> CloudFileInfo -> IO ()
+uploadFileInfo ServiceConfig{..} (EntryName file) CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
@@ -42,11 +42,11 @@ uploadFileInfo CloudInfo{..} (EntryName file) CloudFileInfo{..} = do
             , replaceAttribute "version" (version2text cfVersion)
             , replaceAttribute "recordmtime" timestr
             ]
-            ciDomain
-    void $ memoryAws ciConfig defServiceConfig ciManager command
+            scDomain
+    void $ memoryAws scConfig defServiceConfig scManager command
 
-uploadDeleteMarker :: CloudInfo -> EntryName -> IO ()
-uploadDeleteMarker CloudInfo{..} (EntryName file) = do
+uploadDeleteMarker :: ServiceConfig -> EntryName -> IO ()
+uploadDeleteMarker ServiceConfig{..} (EntryName file) = do
     sdbLogInfo $ "#DB_MARK_DELETED #file " ++ show file
     timestr <- printTime <$> getPOSIXTime
     let command = putAttributes file
@@ -56,11 +56,11 @@ uploadDeleteMarker CloudInfo{..} (EntryName file) = do
             , replaceAttribute "version" T.empty
             , replaceAttribute "recordmtime" timestr
             ]
-            ciDomain
-    void $ memoryAws ciConfig defServiceConfig ciManager command
+            scDomain
+    void $ memoryAws scConfig defServiceConfig scManager command
 
-uploadFileMetadata :: CloudInfo -> EntryName -> DbFileInfo -> IO ()
-uploadFileMetadata CloudInfo{..} (EntryName file) DbFileInfo{..} = do
+uploadFileMetadata :: ServiceConfig -> EntryName -> DbFileInfo -> IO ()
+uploadFileMetadata ServiceConfig{..} (EntryName file) DbFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
@@ -74,32 +74,32 @@ uploadFileMetadata CloudInfo{..} (EntryName file) DbFileInfo{..} = do
                 , replaceAttribute "recordmtime" timestr
                 ]
             , paExpected = [ expectedValue "hash" (hash2text dfHash) ]
-            , paDomainName = ciDomain
+            , paDomainName = scDomain
             }
-    void $ memoryAws ciConfig defServiceConfig ciManager command
+    void $ memoryAws scConfig defServiceConfig scManager command
 
-removeFileInfo :: CloudInfo -> EntryName -> IO ()
-removeFileInfo CloudInfo{..} (EntryName file) = do
+removeFileInfo :: ServiceConfig -> EntryName -> IO ()
+removeFileInfo ServiceConfig{..} (EntryName file) = do
     sdbLogInfo $ "#DB_DELETE #file " ++ show file
-    void $ memoryAws ciConfig defServiceConfig ciManager $
-        deleteAttributes file [] ciDomain
+    void $ memoryAws scConfig defServiceConfig scManager $
+        deleteAttributes file [] scDomain
 
-getAllServerFiles :: CloudInfo -> IO CloudFileList
+getAllServerFiles :: ServiceConfig -> IO CloudFileList
 getAllServerFiles config = do
     sdbLogInfo "#DB_GET_ALL"
-    files <- getServerFiles config ("select * from " <> ciDomain config)
+    files <- getServerFiles config ("select * from " <> scDomain config)
     sdbLogInfo $ "#DB_GET_ALL_RESULT #files " ++ show (length files)
     return files
 
 -- get files updated in a last hour
-getRecentServerFiles :: CloudInfo -> IO CloudFileList
+getRecentServerFiles :: ServiceConfig -> IO CloudFileList
 getRecentServerFiles config = do
     sdbLogInfo "#DB_GET_RECENT"
     time <- getPOSIXTime
     let recentTime = time - recentAge
     let timestr = printTime recentTime
     files <- getServerFiles config $
-        "select * from " <> ciDomain config <>
+        "select * from " <> scDomain config <>
         " where recordmtime > '" <> timestr <> "'"
     sdbLogInfo $ "#DB_GET_RECENT_RESULT #files " ++ show (length files)
     return files
@@ -107,11 +107,11 @@ getRecentServerFiles config = do
     recentAge :: POSIXTime
     recentAge = 3600
 
-getServerFiles :: CloudInfo -> T.Text -> IO CloudFileList
-getServerFiles CloudInfo{..} queryText = do
+getServerFiles :: ServiceConfig -> T.Text -> IO CloudFileList
+getServerFiles ServiceConfig{..} queryText = do
     let query = (select queryText) { sConsistentRead = True }
     items <- runConduitRes $
-        awsIteratedList ciConfig defServiceConfig ciManager query
+        awsIteratedList scConfig defServiceConfig scManager query
             .| sinkList
     return $ sortBy (compare `on` fst) $ mapMaybe conv items
     where

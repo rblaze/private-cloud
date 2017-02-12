@@ -16,9 +16,6 @@ import System.Posix.Types
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-dbName :: FilePath
-dbName = ".privatecloud"
-
 -- | Type for filenames used in database.
 -- Path separator is always /, no matter what host os we are on.
 newtype EntryName = EntryName T.Text
