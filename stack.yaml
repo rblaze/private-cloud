@@ -41,6 +41,9 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
 - aws-0.16
+- credential-store-0.1.1
+- dbus-0.10.12
+- libxml-sax-0.7.5
 
 # Override default flag values for local packages and extra-deps
 flags: {}

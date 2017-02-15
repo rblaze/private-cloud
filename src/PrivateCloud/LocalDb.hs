@@ -7,9 +7,22 @@ import PrivateCloud.FileInfo
 import PrivateCloud.ServiceConfig
 
 initDatabase :: ServiceConfig -> IO ()
-initDatabase ServiceConfig{..} = do
-    withTransaction scConnection $
+initDatabase ServiceConfig{..} =
+    withTransaction scConnection $ do
         execute_ scConnection "CREATE TABLE IF NOT EXISTS localFiles (file TEXT PRIMARY KEY NOT NULL, lastSyncedHash TEXT, lastSyncedSize INT, lastSyncedModTime INT)"
+        execute_ scConnection "CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY NOT NULL, value TEXT)"
+
+writeSetting :: ServiceConfig -> String -> String -> IO ()
+writeSetting ServiceConfig{..} name value =
+    withTransaction scConnection $ do
+        execute scConnection "INSERT OR REPLACE INTO settings (name, value) VALUES (?,?)" (name, value)
+
+readSetting :: ServiceConfig -> String -> IO (Maybe String)
+readSetting ServiceConfig{..} name = do
+    rows <- query scConnection "SELECT value FROM settings WHERE name = ?" (Only name)
+    case rows of
+        [Only value] -> return (Just value)
+        _ -> return Nothing
 
 getFileList :: ServiceConfig -> IO DbFileList
 getFileList ServiceConfig{..} = do

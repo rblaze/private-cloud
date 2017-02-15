@@ -1,4 +1,4 @@
-{-# Language LambdaCase, RecordWildCards #-}
+{-# Language OverloadedStrings, LambdaCase, RecordWildCards #-}
 module Main where
 
 import Control.Concurrent
@@ -7,16 +7,26 @@ import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Strict
 import Data.Time.Clock
+import Data.Word
+import Network.AWS
+import System.Console.Haskeline
+import System.CredentialStore
 import System.Exit
 import System.FilePath.Glob
 import System.Log.Logger
+import System.Random
+import qualified Data.ByteString as BS
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Action
+import PrivateCloud.Aws.Account
 import PrivateCloud.Aws.Cleanup
 import PrivateCloud.LocalDb
 import PrivateCloud.ServiceConfig
 
 import Options
+
 
 mainLoggerName :: String
 mainLoggerName = "PrivateCloud"
@@ -26,7 +36,64 @@ main = do
     options <- getOptions
     print options
 
-    let Options{..} = options
+    run options
+
+encodeUtf :: String -> BS.ByteString
+encodeUtf = T.encodeUtf8 . T.pack
+
+whileNothing :: Monad m => m (Maybe b) -> m b
+whileNothing prompt = do
+    resp <- prompt
+    case resp of
+        Just v -> return v
+        Nothing -> whileNothing prompt
+
+run :: Options -> IO ()
+run Create{..} = do
+    account <- if null accountId
+                then do
+                    randomId <- getStdRandom random
+                    return $ show (randomId :: Word32)
+                else
+                    return accountId
+
+    let accountName = "privatecloud-" ++ account
+    putStrLn $ "Creating account " ++ accountName
+
+    (rootKeyId, rootSecretKey) <-
+        runInputT (defaultSettings { autoAddHistory = False }) $ do
+            keyid <- if null adminKeyId
+                then whileNothing $ getInputLine "Admin AccessKeyId: "
+                else return adminKeyId
+            secret <- if null adminSecretKey
+                then whileNothing $ getPassword (Just '*') "Admin SecretKey: "
+                else return adminSecretKey
+            return (AccessKey $ encodeUtf keyid, SecretKey $ encodeUtf secret)
+
+    env <- newEnv $ FromKeys rootKeyId rootSecretKey
+    (n, s) <- runResourceT $ runAWS env $ createUser $ T.pack account
+
+    putStrLn $ "User keyid " ++ show n
+    putStrLn $ "User secret " ++ show s
+
+    putStrLn "Waiting for changes to propagate"
+    threadDelay 5000000
+
+    putStrLn "Creating storage bucket"
+    env' <- newEnv $ FromKeys (AccessKey $ T.encodeUtf8 n) (SecretKey $ T.encodeUtf8 s)
+    runResourceT $ runAWS env' $ createBucket $ T.pack account
+
+    withServiceConfig root account [] $ \config -> do
+        initDatabase config
+        writeSetting config "account" account
+
+    withCredentialStore $ \store -> do
+        let credStr = BS.concat [T.encodeUtf8 n, BS.singleton 32, T.encodeUtf8 s]
+        putCredential store accountName credStr
+
+run Connect{..} = undefined
+
+run Run{..} = do
     let fullSyncDelay = fromIntegral (fullSyncInterval * 60)
     let cleanupDelay = fromIntegral (cleanupInterval * 60)
 
@@ -34,7 +101,7 @@ main = do
 
     noticeM mainLoggerName $ "#START #root " ++ root
 
-    exclusions <- forM (dbName : patterns) $ \pat -> do
+    exclusions <- forM (dbName : exclPatterns) $ \pat -> do
         case simplify <$> tryCompileWith compPosix pat of
             Left errmsg -> do
                 errorM mainLoggerName $ "#EXCLUSION_ERROR #pattern " ++ show pat
@@ -46,7 +113,6 @@ main = do
 
     withServiceConfig root "devtest" exclusions $ \config -> do
         noticeM mainLoggerName "#DBOPEN"
-        initDatabase config
 
         syncAllChanges config
         startTime <- getCurrentTime
