@@ -15,22 +15,23 @@ import PrivateCloud.Aws.SimpleDb
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
+import PrivateCloud.Monad
 import PrivateCloud.ServiceConfig
 import PrivateCloud.Sync
 
-syncAllChanges :: MonadIO m => ServiceConfig -> DatabaseT m ()
+syncAllChanges :: MonadIO m => ServiceConfig -> PrivateCloudT m ()
 syncAllChanges config =
     syncChanges config $ \localFiles dbFiles -> do
         serverFiles <- getAllServerFiles config
         getAllFileChanges config localFiles dbFiles serverFiles
 
-syncRecentChanges :: MonadIO m => ServiceConfig -> DatabaseT m ()
+syncRecentChanges :: MonadIO m => ServiceConfig -> PrivateCloudT m ()
 syncRecentChanges config =
     syncChanges config $ \localFiles dbFiles -> do
         serverFiles <- getRecentServerFiles config
         getRecentFileChanges config localFiles dbFiles serverFiles
 
-syncChanges :: MonadIO m => ServiceConfig -> (LocalFileList -> DbFileList -> IO [FileAction]) -> DatabaseT m ()
+syncChanges :: MonadIO m => ServiceConfig -> (LocalFileList -> DbFileList -> IO [FileAction]) -> PrivateCloudT m ()
 syncChanges config@ServiceConfig{..} getUpdates = do
     localFiles <- unrollTreeFiles scExclusions <$> liftIO (makeTree scRoot)
     dbFiles <- getFileList

@@ -26,6 +26,7 @@ import PrivateCloud.Action
 import PrivateCloud.AmazonWebServices
 import PrivateCloud.Aws.Cleanup
 import PrivateCloud.LocalDb
+import PrivateCloud.Monad
 import PrivateCloud.ServiceConfig
 import PrivateCloud.CloudProvider
 
@@ -85,7 +86,7 @@ run Create{..} = do
     withCredentialStore $ \store ->
         putCredential store accountName (credentials :: ScrubbedBytes)
 
-    runDatabaseT root $ do
+    runPrivateCloudT root $ do
         initDatabase
         writeSetting "account" account
 
@@ -112,7 +113,7 @@ run Run{..} = do
     withServiceConfig root "devtest" exclusions $ \config -> do
         noticeM mainLoggerName "#DBOPEN"
 
-        runDatabaseT root $ syncAllChanges config
+        runPrivateCloudT root $ syncAllChanges config
         startTime <- getCurrentTime
 
         void $ flip runStateT (startTime, startTime) $ forever $ handleAny
@@ -124,11 +125,11 @@ run Run{..} = do
 
                 if sinceLastFullSync > fullSyncDelay
                     then do
-                        lift $ runDatabaseT root $ syncAllChanges config
+                        lift $ runPrivateCloudT root $ syncAllChanges config
                         modify $ \(_, lastTime) -> (currentTime, lastTime)
                     else lift $ do
                         noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
-                        runDatabaseT root $ syncRecentChanges config
+                        runPrivateCloudT root $ syncRecentChanges config
 
                 sinceLastCleanup <- diffUTCTime currentTime <$> gets snd
                 if sinceLastCleanup > cleanupDelay

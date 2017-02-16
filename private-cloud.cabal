@@ -27,6 +27,7 @@ library
                        PrivateCloud.DirTree
                        PrivateCloud.FileInfo
                        PrivateCloud.LocalDb
+                       PrivateCloud.Monad
                        PrivateCloud.ServiceConfig
                        PrivateCloud.Sync
   ghc-options:         -W -Wall
