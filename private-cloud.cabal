@@ -16,11 +16,13 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     PrivateCloud.Action
+                       PrivateCloud.AmazonWebServices
                        PrivateCloud.Aws
                        PrivateCloud.Aws.Account
                        PrivateCloud.Aws.Cleanup
                        PrivateCloud.Aws.S3
                        PrivateCloud.Aws.SimpleDb
+                       PrivateCloud.CloudProvider
                        PrivateCloud.Crypto
                        PrivateCloud.DirTree
                        PrivateCloud.FileInfo
@@ -34,6 +36,7 @@ library
                      , amazonka
                      , amazonka-iam
                      , amazonka-s3
+                     , amazonka-sdb
                      , bytestring
                      , conduit
                      , conduit-combinators
@@ -78,6 +81,7 @@ executable private-cloud-exe
                      , filepath
                      , haskeline
                      , hslogger
+                     , memory
                      , private-cloud
                      , random
                      , safe-exceptions

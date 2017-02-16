@@ -1,60 +1,102 @@
-{-# Language OverloadedStrings #-}
+{-# Language OverloadedStrings, FlexibleContexts #-}
 module PrivateCloud.Aws.Account where
 
+import Control.Concurrent
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
+import Control.Monad.IO.Class
+import Data.ByteArray
+import Data.ByteArray.Pack
 import Data.Monoid
 import Network.AWS
 import Network.AWS.IAM as IAM hiding (AccessKey)
 import Network.AWS.S3 as S3
+import Network.AWS.SDB as SDB
+import qualified Data.ByteString as BS
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 
-data InternalError = InternalError String
-    deriving (Show)
+import PrivateCloud.CloudProvider
 
-instance Exception InternalError
+-- XXX temporary imports to workaround amazonka bugs
+import Aws.Aws
+import Aws.Core
+import Aws.SimpleDb as AwsSDB
 
-bucketName :: T.Text -> T.Text
-bucketName = ("privatecloud-" <>)
+data AwsInternalError = AwsInternalError String
+    deriving Show
 
-createUser :: MonadAWS m => T.Text -> m (T.Text, T.Text)
-createUser accountId = do
-    let username = "privatecloud-user-" <> accountId
-    let domain = "privatecloud-" <> accountId
+instance Exception AwsInternalError
+
+createCloudInstance :: (MonadAWS (CloudMonad p), ByteArray ba) => T.Text -> CloudMonad p ba
+createCloudInstance instanceId = do
+    let username = "privatecloud-user-" <> instanceId
+    let domainName = "privatecloud-" <> instanceId
+    let bucketName = "privatecloud-" <> instanceId
+    let policyName = "PrivateCloud-Access-" <> instanceId
+
+    -- create user
     userresp <- send $ IAM.createUser username
     userarn <- case userresp ^. cursUser of
         Just info -> return $ info ^. uARN
-        Nothing -> throw $ InternalError "Invalid CreateUser response"
+        Nothing -> throw $ AwsInternalError "Invalid CreateUser response"
     accountid <- case T.split (== ':') userarn of
         [_ , _, _, _, accountid, _] -> return accountid
-        _ -> throw $ InternalError "Invalid user ARN"
+        _ -> throw $ AwsInternalError "Invalid user ARN"
 
-    let userPolicy = T.replace "BUCKET" (bucketName accountId) $
+    let userPolicy = T.replace "BUCKET" bucketName $
             T.replace "ACCOUNTID" accountid $
-            T.replace "DOMAIN" domain policyTemplate
-    let policyName = "PrivateCloud-Access-" <> accountId
+            T.replace "DOMAIN" domainName policyTemplate
 
+    -- set user policy
     void $ send $ IAM.putUserPolicy username policyName userPolicy
     keyresp <- send $ IAM.createAccessKey & cakUserName ?~ username
-    let info = keyresp ^. cakrsAccessKey
-    return (info ^. akAccessKeyId, info ^. akSecretAccessKey)
 
-createBucket :: MonadAWS m => T.Text -> m ()
-createBucket accountId = do
-    let bucketname = BucketName $ bucketName accountId
-    void $ send $ S3.createBucket bucketname
-    void $ send $ S3.putBucketVersioning bucketname $
+    let info = keyresp ^. cakrsAccessKey
+    let keyId = info ^. akAccessKeyId
+    let secretKey = info ^. akSecretAccessKey
+
+    -- wait 5 seconds for user to activate
+    liftIO $ threadDelay 5000000
+
+    -- create storage bucket
+    void $ send $ S3.createBucket (BucketName bucketName)
+    void $ send $ S3.putBucketVersioning (BucketName bucketName) $
         versioningConfiguration & vcStatus ?~ BVSEnabled
     {- XXX: API broken in amazonka
     void $ send $
-        S3.putBucketLifecycleConfiguration bucketname & pblcLifecycleConfiguration ?~
+        S3.putBucketLifecycleConfiguration bucketName & pblcLifecycleConfiguration ?~
             (bucketLifecycleConfiguration & blcRules .~
                 [ lifecycleRule ESEnabled & lrAbortIncompleteMultipartUpload ?~
                     (abortIncompleteMultipartUpload & (aimuDaysAfterInitiation ?~ 2))
                 ]
             )
     -}
+
+    -- create domain
+    {- XXX: API broken in amazonka
+    void $ send $ SDB.createDomain domainName
+    -}
+
+    -- pack credentials
+    let keyidstr = T.encodeUtf8 keyId
+    let secretkeystr = T.encodeUtf8 secretKey
+    let totalSize = BS.length keyidstr + 1 + BS.length secretkeystr
+
+    -- XXX create domain via aws call
+    cred <- makeCredentials keyidstr secretkeystr
+    let awsconfig = Configuration
+            { timeInfo = Timestamp
+            , credentials = cred
+            , logger = defaultLog Warning
+            }
+    void $ liftIO $ simpleAws awsconfig defServiceConfig $ AwsSDB.createDomain domainName
+
+    case fill totalSize $ putBytes keyidstr >> putWord8 32 >> putBytes secretkeystr of
+        Left err -> throw $ AwsInternalError err
+        Right ba -> return ba
+
 
 policyTemplate :: T.Text
 policyTemplate = "{                                                 \
@@ -65,8 +107,6 @@ policyTemplate = "{                                                 \
 \            \"Effect\": \"Allow\",                                 \
 \            \"Action\": [                                          \
 \                \"s3:AbortMultipartUpload\",                       \
-\                \"s3:CreateBucket\",                               \
-\                \"s3:DeleteBucket\",                               \
 \                \"s3:DeleteObject\",                               \
 \                \"s3:DeleteObjectVersion\",                        \
 \                \"s3:GetObject\",                                  \
@@ -75,8 +115,6 @@ policyTemplate = "{                                                 \
 \                \"s3:ListBucketMultipartUploads\",                 \
 \                \"s3:ListBucketVersions\",                         \
 \                \"s3:ListMultipartUploadParts\",                   \
-\                \"s3:PutBucketVersioning\",                        \
-\                \"s3:PutLifecycleConfiguration\",                  \
 \                \"s3:PutObject\"                                   \
 \            ],                                                     \
 \            \"Resource\": [                                        \
@@ -90,12 +128,11 @@ policyTemplate = "{                                                 \
 \            \"Action\": [                                          \
 \                \"sdb:BatchDeleteAttributes\",                     \
 \                \"sdb:BatchPutAttributes\",                        \
+\                \"sdb:CreateDomain\",                              \
 \                \"sdb:DeleteAttributes\",                          \
 \                \"sdb:GetAttributes\",                             \
 \                \"sdb:PutAttributes\",                             \
-\                \"sdb:Select\",                                    \
-\                \"sdb:CreateDomain\",                              \
-\                \"sdb:DeleteDomain\"                               \
+\                \"sdb:Select\"                                     \
 \            ],                                                     \
 \            \"Resource\": [                                        \
 \                \"arn:aws:sdb:*:ACCOUNTID:domain/DOMAIN\"          \

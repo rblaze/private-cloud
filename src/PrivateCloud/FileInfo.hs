@@ -67,8 +67,10 @@ instance Show Hash where
 hmac2hash :: HMAC SHA512t_256 -> Hash
 hmac2hash = Hash . T.decodeUtf8 . convertToBase Base64
 
+type Length = Word64
+
 data LocalFileInfo = LocalFileInfo
-    { lfLength :: Word64
+    { lfLength :: Length
     , lfModTime :: Timestamp
     }
     deriving (Eq, Show)
@@ -77,7 +79,7 @@ type LocalFileList = [(EntryName, LocalFileInfo)]
 
 data DbFileInfo = DbFileInfo
     { dfHash :: Hash
-    , dfLength :: Word64
+    , dfLength :: Length
     , dfModTime :: Timestamp
     }
     deriving (Eq, Show)
@@ -86,7 +88,7 @@ type DbFileList = [(EntryName, DbFileInfo)]
 
 data CloudFileInfo = CloudFileInfo
     { cfHash :: Hash
-    , cfLength :: Word64
+    , cfLength :: Length
     , cfModTime :: Timestamp
     , cfVersion :: VersionId
     }

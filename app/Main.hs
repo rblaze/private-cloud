@@ -6,6 +6,7 @@ import Control.Exception.Safe
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Strict
+import Data.ByteArray (ScrubbedBytes)
 import Data.Time.Clock
 import Data.Word
 import Network.AWS
@@ -20,13 +21,13 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Action
-import PrivateCloud.Aws.Account
+import PrivateCloud.AmazonWebServices
 import PrivateCloud.Aws.Cleanup
 import PrivateCloud.LocalDb
 import PrivateCloud.ServiceConfig
+import PrivateCloud.CloudProvider
 
 import Options
-
 
 mainLoggerName :: String
 mainLoggerName = "PrivateCloud"
@@ -71,25 +72,16 @@ run Create{..} = do
             return (AccessKey $ encodeUtf keyid, SecretKey $ encodeUtf secret)
 
     env <- newEnv $ FromKeys rootKeyId rootSecretKey
-    (n, s) <- runResourceT $ runAWS env $ createUser $ T.pack account
+    credentials <- runResourceT $ runAwsCloud env $ createCloudInstance $ T.pack account
 
-    putStrLn $ "User keyid " ++ show n
-    putStrLn $ "User secret " ++ show s
-
-    putStrLn "Waiting for changes to propagate"
-    threadDelay 5000000
-
-    putStrLn "Creating storage bucket"
-    env' <- newEnv $ FromKeys (AccessKey $ T.encodeUtf8 n) (SecretKey $ T.encodeUtf8 s)
-    runResourceT $ runAWS env' $ createBucket $ T.pack account
-
+    {-
     withServiceConfig root account [] $ \config -> do
         initDatabase config
         writeSetting config "account" account
+    -}
 
-    withCredentialStore $ \store -> do
-        let credStr = BS.concat [T.encodeUtf8 n, BS.singleton 32, T.encodeUtf8 s]
-        putCredential store accountName credStr
+    withCredentialStore $ \store ->
+        putCredential store accountName (credentials :: ScrubbedBytes)
 
 run Connect{..} = undefined
 
