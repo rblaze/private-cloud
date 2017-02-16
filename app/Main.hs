@@ -12,7 +12,9 @@ import Data.Word
 import Network.AWS
 import System.Console.Haskeline
 import System.CredentialStore
+import System.Directory
 import System.Exit
+import System.FilePath
 import System.FilePath.Glob
 import System.Log.Logger
 import System.Random
@@ -51,6 +53,12 @@ whileNothing prompt = do
 
 run :: Options -> IO ()
 run Create{..} = do
+    dbExists <- doesPathExist (root </> dbName)
+    when dbExists $ do
+        putStrLn $ "Local database already exists at " ++ root
+            ++ ", can't create new cloud instance"
+        exitFailure
+
     account <- if null accountId
                 then do
                     randomId <- getStdRandom random
@@ -74,14 +82,12 @@ run Create{..} = do
     env <- newEnv $ FromKeys rootKeyId rootSecretKey
     credentials <- runResourceT $ runAwsCloud env $ createCloudInstance $ T.pack account
 
-    {-
-    withServiceConfig root account [] $ \config -> do
-        initDatabase config
-        writeSetting config "account" account
-    -}
-
     withCredentialStore $ \store ->
         putCredential store accountName (credentials :: ScrubbedBytes)
+
+    runDatabaseT root $ do
+        initDatabase
+        writeSetting "account" account
 
 run Connect{..} = undefined
 
@@ -106,7 +112,7 @@ run Run{..} = do
     withServiceConfig root "devtest" exclusions $ \config -> do
         noticeM mainLoggerName "#DBOPEN"
 
-        syncAllChanges config
+        runDatabaseT root $ syncAllChanges config
         startTime <- getCurrentTime
 
         void $ flip runStateT (startTime, startTime) $ forever $ handleAny
@@ -118,11 +124,11 @@ run Run{..} = do
 
                 if sinceLastFullSync > fullSyncDelay
                     then do
-                        lift $ syncAllChanges config
+                        lift $ runDatabaseT root $ syncAllChanges config
                         modify $ \(_, lastTime) -> (currentTime, lastTime)
                     else lift $ do
                         noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
-                        syncRecentChanges config
+                        runDatabaseT root $ syncRecentChanges config
 
                 sinceLastCleanup <- diffUTCTime currentTime <$> gets snd
                 if sinceLastCleanup > cleanupDelay

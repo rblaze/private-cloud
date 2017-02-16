@@ -1,5 +1,6 @@
 {-# Language CPP, OverloadedStrings, LambdaCase, RecordWildCards #-}
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.ByteArray.Encoding
 import System.Directory
 import System.Directory.Tree
@@ -153,14 +154,14 @@ testDbAddRead = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    [(fname, info)] <- withServiceConfig tmpdir "test" [] $ \config -> do
-        initDatabase config
-        putFileInfo config (EntryName "foo") DbFileInfo
+    [(fname, info)] <- runDatabaseT tmpdir $ do
+        initDatabase
+        putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-        getFileList config
+        getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
@@ -171,15 +172,15 @@ testDbDoubleInit = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    withServiceConfig tmpdir "test" [] $ \config -> do
-        initDatabase config
-        putFileInfo config (EntryName "foo") DbFileInfo
+    runDatabaseT tmpdir $ do
+        initDatabase
+        putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-        initDatabase config
-    [(fname, info)] <- withServiceConfig tmpdir "test" [] getFileList
+        initDatabase
+    [(fname, info)] <- runDatabaseT tmpdir getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
@@ -193,19 +194,19 @@ testDbUpdate = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let secondHash = Hash "78901"
     let secondSize = 1024
     let secondts = Timestamp 5436
-    withServiceConfig tmpdir "test" [] $ \config -> do
-        initDatabase config
-        putFileInfo config (EntryName "foo") DbFileInfo
+    runDatabaseT tmpdir $  do
+        initDatabase
+        putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-        putFileInfo config (EntryName "foo") DbFileInfo
+        putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = secondHash
             , dfLength = secondSize
             , dfModTime = secondts
             }
-    [(fname, info)] <- withServiceConfig tmpdir "test" [] getFileList
+    [(fname, info)] <- runDatabaseT tmpdir getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" secondHash (dfHash info)
     assertEqual "invalid size read" secondSize (dfLength info)
@@ -216,30 +217,30 @@ testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    withServiceConfig tmpdir "test" [] $ \config -> do
-        initDatabase config
-        v <- getFileList config
-        assertEqual "unexpected data found" [] v
-        putFileInfo config (EntryName "foo") DbFileInfo
+    runDatabaseT tmpdir $ do
+        initDatabase
+        v <- getFileList
+        liftIO $ assertEqual "unexpected data found" [] v
+        putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
-    [(fname, info)] <- withServiceConfig tmpdir "test" [] $ \config -> do
-        v <- getFileList config
-        deleteFileInfo config (EntryName "foo")
+    [(fname, info)] <- runDatabaseT tmpdir $ do
+        v <- getFileList
+        deleteFileInfo (EntryName "foo")
         return v
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
 
-    v <- withServiceConfig tmpdir "test" [] getFileList
+    v <- runDatabaseT tmpdir getFileList
     assertEqual "data found after delete" [] v
 
 testGetFileChanges :: Assertion
 testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withServiceConfig root "test" [dbPattern] $ \config -> do
-    initDatabase config
+    runDatabaseT root initDatabase
     createDirectoryIfMissing True (root </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (root </> "a" </> "b" </> "e" </> "f")
 #ifndef WINBUILD
@@ -250,7 +251,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     let getChanges' func serverFiles = do
             localFiles <- map func . unrollTreeFiles [dbPattern] . normalizeTree <$> makeTree root
-            dbFiles <- getFileList config
+            dbFiles <- runDatabaseT root getFileList
             getAllFileChanges config localFiles dbFiles serverFiles
 
     let getChanges = getChanges' id
@@ -262,7 +263,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
             }
 
     let local2db filename LocalFileInfo{..} = do
-            hash <- getFileHash (root </> entry2path filename)
+            hash <- liftIO $ getFileHash (root </> entry2path filename)
             return DbFileInfo
                 { dfHash = hash
                 , dfLength = lfLength
@@ -270,17 +271,17 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
                 }
 
     let updateDb changes =
-            forM_ changes $ \case
-                UpdateLocalFile{..} -> putFileInfo config faFilename (cloud2db faCloudInfo)
-                UpdateLocalMetadata{..} -> putFileInfo config faFilename (cloud2db faCloudInfo)
-                DeleteLocalFile{..} -> deleteFileInfo config faFilename
+            runDatabaseT root $ forM_ changes $ \case
+                UpdateLocalFile{..} -> putFileInfo faFilename (cloud2db faCloudInfo)
+                UpdateLocalMetadata{..} -> putFileInfo faFilename (cloud2db faCloudInfo)
+                DeleteLocalFile{..} -> deleteFileInfo faFilename
                 UpdateCloudFile{..} -> do
                     info <- local2db faFilename faLocalInfo
-                    putFileInfo config faFilename info
+                    putFileInfo faFilename info
                 UpdateCloudMetadata{..} -> do
                     info <- local2db faFilename faLocalInfo
-                    putFileInfo config faFilename info
-                DeleteCloudFile{..} -> deleteFileInfo config faFilename
+                    putFileInfo faFilename info
+                DeleteCloudFile{..} -> deleteFileInfo faFilename
                 _ -> return ()
 
     let check msg server golden = do
