@@ -155,7 +155,7 @@ testDbAddRead = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    [(fname, info)] <- runPrivateCloudT tmpdir $ do
+    [(fname, info)] <- runPrivateCloudT tmpdir [] $ do
         initDatabase
         putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
@@ -173,7 +173,7 @@ testDbDoubleInit = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    runPrivateCloudT tmpdir $ do
+    runPrivateCloudT tmpdir [] $ do
         initDatabase
         putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
@@ -181,7 +181,7 @@ testDbDoubleInit = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
             , dfModTime = srcts
             }
         initDatabase
-    [(fname, info)] <- runPrivateCloudT tmpdir getFileList
+    [(fname, info)] <- runPrivateCloudT tmpdir [] getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
@@ -195,7 +195,7 @@ testDbUpdate = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let secondHash = Hash "78901"
     let secondSize = 1024
     let secondts = Timestamp 5436
-    runPrivateCloudT tmpdir $  do
+    runPrivateCloudT tmpdir [] $ do
         initDatabase
         putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
@@ -207,7 +207,7 @@ testDbUpdate = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
             , dfLength = secondSize
             , dfModTime = secondts
             }
-    [(fname, info)] <- runPrivateCloudT tmpdir getFileList
+    [(fname, info)] <- runPrivateCloudT tmpdir [] getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" secondHash (dfHash info)
     assertEqual "invalid size read" secondSize (dfLength info)
@@ -218,7 +218,7 @@ testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    runPrivateCloudT tmpdir $ do
+    runPrivateCloudT tmpdir [] $ do
         initDatabase
         v <- getFileList
         liftIO $ assertEqual "unexpected data found" [] v
@@ -227,7 +227,7 @@ testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
             , dfLength = srcsize
             , dfModTime = srcts
             }
-    [(fname, info)] <- runPrivateCloudT tmpdir $ do
+    [(fname, info)] <- runPrivateCloudT tmpdir [] $ do
         v <- getFileList
         deleteFileInfo (EntryName "foo")
         return v
@@ -236,12 +236,12 @@ testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
 
-    v <- runPrivateCloudT tmpdir getFileList
+    v <- runPrivateCloudT tmpdir [] getFileList
     assertEqual "data found after delete" [] v
 
 testGetFileChanges :: Assertion
-testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withServiceConfig root "test" [dbPattern] $ \config -> do
-    runPrivateCloudT root initDatabase
+testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withServiceConfig root "test" $ \config -> do
+    runPrivateCloudT root [dbPattern] initDatabase
     createDirectoryIfMissing True (root </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (root </> "a" </> "b" </> "e" </> "f")
 #ifndef WINBUILD
@@ -252,7 +252,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     let getChanges' func serverFiles = do
             localFiles <- map func . unrollTreeFiles [dbPattern] . normalizeTree <$> makeTree root
-            dbFiles <- runPrivateCloudT root getFileList
+            dbFiles <- runPrivateCloudT root [dbPattern] getFileList
             getAllFileChanges config localFiles dbFiles serverFiles
 
     let getChanges = getChanges' id
@@ -272,7 +272,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
                 }
 
     let updateDb changes =
-            runPrivateCloudT root $ forM_ changes $ \case
+            runPrivateCloudT root [dbPattern] $ forM_ changes $ \case
                 UpdateLocalFile{..} -> putFileInfo faFilename (cloud2db faCloudInfo)
                 UpdateLocalMetadata{..} -> putFileInfo faFilename (cloud2db faCloudInfo)
                 DeleteLocalFile{..} -> deleteFileInfo faFilename

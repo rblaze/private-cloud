@@ -81,6 +81,7 @@ createCloudInstance instanceId = do
     let totalSize = BS.length keyidstr + 1 + BS.length secretkeystr
 
     -- XXX create domain via aws call
+    -- drop CreateDomain permission too
     cred <- makeCredentials keyidstr secretkeystr
     let awsconfig = Configuration
             { timeInfo = Timestamp

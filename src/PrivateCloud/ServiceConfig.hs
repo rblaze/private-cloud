@@ -4,7 +4,6 @@ import Aws.Aws
 import Aws.S3.Core
 import Network.HTTP.Client (Manager, newManager)
 import Network.HTTP.Client.TLS
-import System.FilePath.Glob
 import qualified Data.Text as T
 
 import PrivateCloud.Aws
@@ -15,11 +14,10 @@ data ServiceConfig = ServiceConfig
     , scDomain :: T.Text
     , scBucket :: Bucket
     , scRoot :: FilePath
-    , scExclusions :: [Pattern]
     }
 
-withServiceConfig :: FilePath -> String -> [Pattern] -> (ServiceConfig -> IO a) -> IO a
-withServiceConfig root cloudid exclusions f = do
+withServiceConfig :: FilePath -> String -> (ServiceConfig -> IO a) -> IO a
+withServiceConfig root cloudid f = do
     manager <- newManager tlsManagerSettings
     config <- baseConfiguration
     let cloudname = T.pack $ "privatecloud-" ++ cloudid
@@ -29,5 +27,4 @@ withServiceConfig root cloudid exclusions f = do
         , scDomain = cloudname
         , scBucket = cloudname
         , scRoot = root
-        , scExclusions = exclusions
         }

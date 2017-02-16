@@ -33,7 +33,8 @@ syncRecentChanges config =
 
 syncChanges :: MonadIO m => ServiceConfig -> (LocalFileList -> DbFileList -> IO [FileAction]) -> PrivateCloudT m ()
 syncChanges config@ServiceConfig{..} getUpdates = do
-    localFiles <- unrollTreeFiles scExclusions <$> liftIO (makeTree scRoot)
+    patterns <- exclusions
+    localFiles <- unrollTreeFiles patterns <$> liftIO (makeTree scRoot)
     dbFiles <- getFileList
     updates <- liftIO $ getUpdates localFiles dbFiles
     -- XXX remove debugging

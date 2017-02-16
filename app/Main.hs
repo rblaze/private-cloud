@@ -26,7 +26,7 @@ import PrivateCloud.Action
 import PrivateCloud.AmazonWebServices
 import PrivateCloud.Aws.Cleanup
 import PrivateCloud.LocalDb
-import PrivateCloud.Monad
+import PrivateCloud.Monad (runPrivateCloudT, dbName)
 import PrivateCloud.ServiceConfig
 import PrivateCloud.CloudProvider
 
@@ -86,7 +86,7 @@ run Create{..} = do
     withCredentialStore $ \store ->
         putCredential store accountName (credentials :: ScrubbedBytes)
 
-    runPrivateCloudT root $ do
+    runPrivateCloudT root [] $ do
         initDatabase
         writeSetting "account" account
 
@@ -100,7 +100,7 @@ run Run{..} = do
 
     noticeM mainLoggerName $ "#START #root " ++ root
 
-    exclusions <- forM (dbName : exclPatterns) $ \pat -> do
+    patterns <- forM (dbName : exclPatterns) $ \pat -> do
         case simplify <$> tryCompileWith compPosix pat of
             Left errmsg -> do
                 errorM mainLoggerName $ "#EXCLUSION_ERROR #pattern " ++ show pat
@@ -110,10 +110,11 @@ run Run{..} = do
                 infoM mainLoggerName $ "#EXCLUSION #pattern " ++ show pat
                 return pattern
 
-    withServiceConfig root "devtest" exclusions $ \config -> do
+    let runcloud = runPrivateCloudT root patterns
+    withServiceConfig root "devtest" $ \config -> do
         noticeM mainLoggerName "#DBOPEN"
 
-        runPrivateCloudT root $ syncAllChanges config
+        runcloud $ syncAllChanges config
         startTime <- getCurrentTime
 
         void $ flip runStateT (startTime, startTime) $ forever $ handleAny
@@ -125,11 +126,11 @@ run Run{..} = do
 
                 if sinceLastFullSync > fullSyncDelay
                     then do
-                        lift $ runPrivateCloudT root $ syncAllChanges config
+                        lift $ runcloud $ syncAllChanges config
                         modify $ \(_, lastTime) -> (currentTime, lastTime)
                     else lift $ do
                         noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
-                        runPrivateCloudT root $ syncRecentChanges config
+                        runcloud $ syncRecentChanges config
 
                 sinceLastCleanup <- diffUTCTime currentTime <$> gets snd
                 if sinceLastCleanup > cleanupDelay
