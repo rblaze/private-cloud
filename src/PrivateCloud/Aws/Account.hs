@@ -1,7 +1,6 @@
 {-# Language OverloadedStrings, FlexibleContexts #-}
 module PrivateCloud.Aws.Account where
 
-import Control.Concurrent
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
@@ -56,9 +55,6 @@ createCloudInstance instanceId = do
     let info = keyresp ^. cakrsAccessKey
     let keyId = info ^. akAccessKeyId
     let secretKey = info ^. akSecretAccessKey
-
-    -- wait 5 seconds for user to activate
-    liftIO $ threadDelay 5000000
 
     -- create storage bucket
     void $ send $ S3.createBucket (BucketName bucketName)
