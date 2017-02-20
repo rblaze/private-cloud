@@ -1,4 +1,4 @@
-{-# Language LambdaCase, RecordWildCards #-}
+{-# Language LambdaCase, RecordWildCards, TypeFamilies #-}
 module PrivateCloud.Action
     ( syncAllChanges
     , syncRecentChanges
@@ -8,35 +8,36 @@ import Control.Monad
 import Control.Monad.IO.Class
 import System.Directory
 import System.FilePath
-import qualified Data.ByteString.Lazy as BL
 
-import PrivateCloud.Aws.S3
-import PrivateCloud.Aws.SimpleDb
+import PrivateCloud.CloudProvider
 import PrivateCloud.DirTree
 import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
 import PrivateCloud.Monad
-import PrivateCloud.ServiceConfig
 import PrivateCloud.Sync
 
-syncAllChanges :: MonadIO m => ServiceConfig -> PrivateCloudT m ()
-syncAllChanges config =
-    syncChanges config $ \localFiles dbFiles -> do
-        serverFiles <- getAllServerFiles config
-        getAllFileChanges config localFiles dbFiles serverFiles
+syncAllChanges :: CloudProvider p => PrivateCloud p ()
+syncAllChanges =
+    syncChanges $ \localFiles dbFiles -> do
+        ctx <- context
+        serverFiles <- runCloud ctx getAllServerFiles
+        getAllFileChanges localFiles dbFiles serverFiles
 
-syncRecentChanges :: MonadIO m => ServiceConfig -> PrivateCloudT m ()
-syncRecentChanges config =
-    syncChanges config $ \localFiles dbFiles -> do
-        serverFiles <- getRecentServerFiles config
-        getRecentFileChanges config localFiles dbFiles serverFiles
+syncRecentChanges :: CloudProvider p => PrivateCloud p ()
+syncRecentChanges =
+    syncChanges $ \localFiles dbFiles -> do
+        ctx <- context
+        serverFiles <- runCloud ctx getRecentServerFiles
+        getRecentFileChanges localFiles dbFiles serverFiles
 
-syncChanges :: MonadIO m => ServiceConfig -> (LocalFileList -> DbFileList -> IO [FileAction]) -> PrivateCloudT m ()
-syncChanges config@ServiceConfig{..} getUpdates = do
+syncChanges :: CloudProvider p => (LocalFileList -> DbFileList -> PrivateCloud p [FileAction]) -> PrivateCloud p ()
+syncChanges getUpdates = do
+    ctx <- context
+    root <- rootDir
     patterns <- exclusions
-    localFiles <- unrollTreeFiles patterns <$> liftIO (makeTree scRoot)
+    localFiles <- unrollTreeFiles patterns <$> liftIO (makeTree root)
     dbFiles <- getFileList
-    updates <- liftIO $ getUpdates localFiles dbFiles
+    updates <- getUpdates localFiles dbFiles
     -- XXX remove debugging
     liftIO $ print updates
 
@@ -44,15 +45,15 @@ syncChanges config@ServiceConfig{..} getUpdates = do
         ResolveConflict{..} ->
             error "Aaaaaaa!!!!!!"
         UpdateCloudFile{..} -> do
-            let path = scRoot </> entry2path faFilename
-            (version, len, hash) <-liftIO $ uploadFile config faFilename path
+            let path = root </> entry2path faFilename
+            (version, len, hash) <- runCloud ctx $ uploadFile faFilename path
             let cloudinfo = CloudFileInfo
                     { cfHash = hash
                     , cfModTime = lfModTime faLocalInfo
                     , cfLength = len
                     , cfVersion = version
                     }
-            liftIO $ uploadFileInfo config faFilename cloudinfo
+            runCloud ctx $ uploadFileInfo faFilename cloudinfo
             let dbinfo = DbFileInfo
                     { dfHash = hash
                     , dfModTime = lfModTime faLocalInfo
@@ -65,17 +66,16 @@ syncChanges config@ServiceConfig{..} getUpdates = do
                     , dfModTime = lfModTime faLocalInfo
                     , dfLength = lfLength faLocalInfo
                     }
-            liftIO $ uploadFileMetadata config faFilename dbinfo
+            runCloud ctx $ uploadFileMetadata faFilename dbinfo
             putFileInfo faFilename dbinfo
         DeleteCloudFile{..} -> do
-            liftIO $ deleteFile config faFilename
-            liftIO $ uploadDeleteMarker config faFilename
+            -- deleteFile faFilename
+            runCloud ctx $ uploadDeleteMarker faFilename
             deleteFileInfo faFilename
         UpdateLocalFile{..} -> do
-            let path = scRoot </> entry2path faFilename
-            body <- liftIO $ downloadFile config faFilename (cfVersion faCloudInfo)
+            let path = root </> entry2path faFilename
             liftIO $ createDirectoryIfMissing True (dropFileName path)
-            liftIO $ BL.writeFile path body
+            runCloud ctx $ downloadFile faFilename (cfVersion faCloudInfo) path
             liftIO $ setModificationTime path (ts2utc $ cfModTime faCloudInfo)
             putFileInfo faFilename
                 DbFileInfo
@@ -84,7 +84,7 @@ syncChanges config@ServiceConfig{..} getUpdates = do
                     , dfModTime = cfModTime faCloudInfo
                     }
         UpdateLocalMetadata{..} -> do
-            liftIO $ setModificationTime (scRoot </> entry2path faFilename)
+            liftIO $ setModificationTime (root </> entry2path faFilename)
                 (ts2utc $ cfModTime faCloudInfo)
             putFileInfo faFilename
                 DbFileInfo
@@ -93,5 +93,5 @@ syncChanges config@ServiceConfig{..} getUpdates = do
                     , dfModTime = cfModTime faCloudInfo
                     }
         DeleteLocalFile{..} -> do
-            liftIO $ removeFile (scRoot </> entry2path faFilename)
+            liftIO $ removeFile (root </> entry2path faFilename)
             deleteFileInfo faFilename

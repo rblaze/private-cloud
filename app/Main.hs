@@ -4,12 +4,10 @@ module Main where
 import Control.Concurrent
 import Control.Exception.Safe
 import Control.Monad
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.State.Strict
+import Control.Monad.IO.Class
 import Data.ByteArray (ScrubbedBytes)
 import Data.Time.Clock
 import Data.Word
-import Network.AWS
 import System.Console.Haskeline
 import System.CredentialStore
 import System.Directory
@@ -24,11 +22,8 @@ import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Action
 import PrivateCloud.AmazonWebServices
-import PrivateCloud.Aws.Cleanup
-import PrivateCloud.LocalDb
-import PrivateCloud.Monad (runPrivateCloudT, dbName)
-import PrivateCloud.ServiceConfig
 import PrivateCloud.CloudProvider
+import PrivateCloud.Monad
 
 import Options
 
@@ -78,17 +73,12 @@ run Create{..} = do
             secret <- if null adminSecretKey
                 then whileNothing $ getPassword (Just '*') "Admin SecretKey: "
                 else return adminSecretKey
-            return (AccessKey $ encodeUtf keyid, SecretKey $ encodeUtf secret)
+            return (encodeUtf keyid, encodeUtf secret)
 
-    env <- newEnv $ FromKeys rootKeyId rootSecretKey
-    credentials <- runResourceT $ runAwsCloud env $ createCloudInstance $ T.pack account
-
+    createDirectoryIfMissing True root
+    credentials <- setupAwsPrivateCloud root (T.pack accountName) rootKeyId rootSecretKey
     withCredentialStore $ \store ->
         putCredential store accountName (credentials :: ScrubbedBytes)
-
-    runPrivateCloudT root [] $ do
-        initDatabase
-        writeSetting "account" account
 
 run Connect{..} = undefined
 
@@ -110,33 +100,41 @@ run Run{..} = do
                 infoM mainLoggerName $ "#EXCLUSION #pattern " ++ show pat
                 return pattern
 
-    let runcloud = runPrivateCloudT root patterns
-    withServiceConfig root "devtest" $ \config -> do
-        noticeM mainLoggerName "#DBOPEN"
+    let getCred cloudid =
+            withCredentialStore $ \store ->
+                getCredential store (T.unpack cloudid) :: IO (Maybe ScrubbedBytes)
 
-        runcloud $ syncAllChanges config
-        startTime <- getCurrentTime
+    runAwsPrivateCloud root patterns getCred $ do
+        liftIO $ noticeM mainLoggerName "#RUN"
 
-        void $ flip runStateT (startTime, startTime) $ forever $ handleAny
-            (\e -> lift $ errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
-            do
-                lift $ threadDelay (60000000 * fromIntegral syncInterval)
-                currentTime <- lift $ getCurrentTime
-                sinceLastFullSync <- diffUTCTime currentTime <$> gets fst
+        syncAllChanges
+        startTime <- liftIO getCurrentTime
 
-                if sinceLastFullSync > fullSyncDelay
+        let loop lastFullSyncTime lastCleanupTime = handleAny
+                (\e -> liftIO $ errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
+              do
+                liftIO $ threadDelay (60000000 * fromIntegral syncInterval)
+                currentTime <- liftIO getCurrentTime
+
+                let sinceLastFullSync = diffUTCTime currentTime lastFullSyncTime
+                lfst <- if sinceLastFullSync > fullSyncDelay
                     then do
-                        lift $ runcloud $ syncAllChanges config
-                        modify $ \(_, lastTime) -> (currentTime, lastTime)
-                    else lift $ do
-                        noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
-                        runcloud $ syncRecentChanges config
+                        syncAllChanges
+                        return currentTime
+                    else do
+                        liftIO $ noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
+                        syncRecentChanges
+                        return lastFullSyncTime
 
-                sinceLastCleanup <- diffUTCTime currentTime <$> gets snd
-                if sinceLastCleanup > cleanupDelay
+                let sinceLastCleanup = diffUTCTime currentTime lastCleanupTime
+                lct <- if sinceLastCleanup > cleanupDelay
                     then do
-                        lift $ deleteOldVersions config
-                        lift $ deleteOldDbRecords config
-                        modify $ \(lastTime, _) -> (lastTime, currentTime)
-                    else
-                        lift $ noticeM mainLoggerName $ "#TIMER #tillNextCleanup " ++ show (cleanupDelay - sinceLastCleanup)
+                        ctx <- context
+                        runCloud ctx cleanupCloud
+                        return currentTime
+                    else do
+                        liftIO $ noticeM mainLoggerName $ "#TIMER #tillNextCleanup " ++ show (cleanupDelay - sinceLastCleanup)
+                        return lastCleanupTime
+                loop lfst lct
+
+        loop startTime startTime

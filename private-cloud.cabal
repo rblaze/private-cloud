@@ -17,24 +17,26 @@ library
   hs-source-dirs:      src
   exposed-modules:     PrivateCloud.Action
                        PrivateCloud.AmazonWebServices
-                       PrivateCloud.Aws
+                       PrivateCloud.AwsMonad
                        PrivateCloud.Aws.Account
                        PrivateCloud.Aws.Cleanup
+                       PrivateCloud.Aws.Logging
                        PrivateCloud.Aws.S3
                        PrivateCloud.Aws.SimpleDb
                        PrivateCloud.CloudProvider
                        PrivateCloud.Crypto
                        PrivateCloud.DirTree
+                       PrivateCloud.Exception
                        PrivateCloud.FileInfo
                        PrivateCloud.LocalDb
                        PrivateCloud.Monad
-                       PrivateCloud.ServiceConfig
                        PrivateCloud.Sync
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5
                      , Glob
                      , aws >= 0.16
                      , amazonka
+                     , amazonka-core
                      , amazonka-iam
                      , amazonka-s3
                      , amazonka-sdb
@@ -56,10 +58,12 @@ library
                      , resourcet
                      , safe-exceptions
                      , sqlite-simple
+                     , tagged
                      , text
                      , text-format
                      , time
                      , transformers
+                     , transformers-base
                      , unordered-containers
   if os(windows)
     cpp-options:       -DWINBUILD
@@ -74,7 +78,6 @@ executable private-cloud-exe
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -W -Wall
   build-depends:       base
                      , Glob
-                     , amazonka
                      , bytestring
                      , cmdargs
                      , credential-store
@@ -97,6 +100,7 @@ test-suite private-cloud-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
+  other-modules:       Provider
   build-depends:       base
                      , Glob
                      , bytestring
@@ -106,6 +110,7 @@ test-suite private-cloud-test
                      , memory
                      , private-cloud
                      , safe-exceptions
+                     , tagged
                      , tasty
                      , tasty-hunit
                      , temporary

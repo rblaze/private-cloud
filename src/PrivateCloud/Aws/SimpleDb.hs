@@ -6,6 +6,7 @@ import Aws.Core (defServiceConfig)
 import Aws.SimpleDb
 import Conduit
 import Control.Monad
+import Control.Monad.Trans.Resource
 import Data.Function
 import Data.List
 import Data.Maybe
@@ -14,13 +15,15 @@ import Data.Text.Buildable
 import Data.Text.Format
 import Data.Time.Clock.POSIX
 import Data.Word
+import Network.HTTP.Client (newManager)
+import Network.HTTP.Client.TLS
 import System.Log.Logger
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as T
 
+import PrivateCloud.AwsMonad
 import PrivateCloud.FileInfo
-import PrivateCloud.ServiceConfig
 
 sdbLoggerName :: String
 sdbLoggerName = "PrivateCloud.AWS.SimpleDb"
@@ -28,13 +31,14 @@ sdbLoggerName = "PrivateCloud.AWS.SimpleDb"
 sdbLogInfo :: MonadIO m => String -> m ()
 sdbLogInfo = liftIO . infoM sdbLoggerName
 
-uploadFileInfo :: ServiceConfig -> EntryName -> CloudFileInfo -> IO ()
-uploadFileInfo ServiceConfig{..} (EntryName file) CloudFileInfo{..} = do
+uploadFileInfo :: EntryName -> CloudFileInfo -> AwsMonad ()
+uploadFileInfo (EntryName file) CloudFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
     sdbLogInfo $ "#DB_UPLOAD #file " ++ show file
-    timestr <- printTime <$> getPOSIXTime
+    timestr <- printTime <$> liftIO getPOSIXTime
+    domain <- awsAsks acDomain
     let command = putAttributes file
             [ replaceAttribute "hash" (hash2text cfHash)
             , replaceAttribute "size" (printSingle cfLength)
@@ -42,13 +46,15 @@ uploadFileInfo ServiceConfig{..} (EntryName file) CloudFileInfo{..} = do
             , replaceAttribute "version" (version2text cfVersion)
             , replaceAttribute "recordmtime" timestr
             ]
-            scDomain
-    void $ memoryAws scConfig defServiceConfig scManager command
+            domain
+    conf <- awsAsks acLegacyConf
+    void $ simpleAws conf defServiceConfig command
 
-uploadDeleteMarker :: ServiceConfig -> EntryName -> IO ()
-uploadDeleteMarker ServiceConfig{..} (EntryName file) = do
+uploadDeleteMarker :: EntryName -> AwsMonad ()
+uploadDeleteMarker (EntryName file) = do
     sdbLogInfo $ "#DB_MARK_DELETED #file " ++ show file
-    timestr <- printTime <$> getPOSIXTime
+    timestr <- printTime <$> liftIO getPOSIXTime
+    domain <- awsAsks acDomain
     let command = putAttributes file
             [ replaceAttribute "hash" T.empty
             , replaceAttribute "size" T.empty
@@ -56,16 +62,18 @@ uploadDeleteMarker ServiceConfig{..} (EntryName file) = do
             , replaceAttribute "version" T.empty
             , replaceAttribute "recordmtime" timestr
             ]
-            scDomain
-    void $ memoryAws scConfig defServiceConfig scManager command
+            domain
+    conf <- awsAsks acLegacyConf
+    void $ simpleAws conf defServiceConfig command
 
-uploadFileMetadata :: ServiceConfig -> EntryName -> DbFileInfo -> IO ()
-uploadFileMetadata ServiceConfig{..} (EntryName file) DbFileInfo{..} = do
+uploadFileMetadata :: EntryName -> DbFileInfo -> AwsMonad ()
+uploadFileMetadata (EntryName file) DbFileInfo{..} = do
 -- change to a single attribute with a record storing all values.
 -- no need to bother if they present or not, also makes encryption easier.
 -- XXX think about versioning? Maybe use protobufs or bond.
     sdbLogInfo $ "#DB_UPDATE #file " ++ show file
-    timestr <- printTime <$> getPOSIXTime
+    timestr <- printTime <$> liftIO getPOSIXTime
+    domain <- awsAsks acDomain
     let command = PutAttributes
             { paItemName = file
             , paAttributes =
@@ -74,44 +82,50 @@ uploadFileMetadata ServiceConfig{..} (EntryName file) DbFileInfo{..} = do
                 , replaceAttribute "recordmtime" timestr
                 ]
             , paExpected = [ expectedValue "hash" (hash2text dfHash) ]
-            , paDomainName = scDomain
+            , paDomainName = domain
             }
-    void $ memoryAws scConfig defServiceConfig scManager command
+    conf <- awsAsks acLegacyConf
+    void $ simpleAws conf defServiceConfig command
 
-removeFileInfo :: ServiceConfig -> EntryName -> IO ()
-removeFileInfo ServiceConfig{..} (EntryName file) = do
+removeFileInfo :: EntryName -> AwsMonad ()
+removeFileInfo (EntryName file) = do
     sdbLogInfo $ "#DB_DELETE #file " ++ show file
-    void $ memoryAws scConfig defServiceConfig scManager $
-        deleteAttributes file [] scDomain
+    domain <- awsAsks acDomain
+    conf <- awsAsks acLegacyConf
+    void $ simpleAws conf defServiceConfig $
+        deleteAttributes file [] domain
 
-getAllServerFiles :: ServiceConfig -> IO CloudFileList
-getAllServerFiles config = do
+getAllServerFiles :: AwsMonad CloudFileList
+getAllServerFiles = do
     sdbLogInfo "#DB_GET_ALL"
-    files <- getServerFiles config ("select * from " <> scDomain config)
+    domain <- awsAsks acDomain
+    files <- getServerFiles ("select * from `" <> domain <> "`")
     sdbLogInfo $ "#DB_GET_ALL_RESULT #files " ++ show (length files)
     return files
 
 -- get files updated in a last hour
-getRecentServerFiles :: ServiceConfig -> IO CloudFileList
-getRecentServerFiles config = do
+getRecentServerFiles :: AwsMonad CloudFileList
+getRecentServerFiles = do
     sdbLogInfo "#DB_GET_RECENT"
-    time <- getPOSIXTime
+    time <- liftIO getPOSIXTime
+    domain <- awsAsks acDomain
     let recentTime = time - recentAge
     let timestr = printTime recentTime
-    files <- getServerFiles config $
-        "select * from " <> scDomain config <>
-        " where recordmtime > '" <> timestr <> "'"
+    files <- getServerFiles $
+        "select * from `" <> domain <> "` where recordmtime > '" <> timestr <> "'"
     sdbLogInfo $ "#DB_GET_RECENT_RESULT #files " ++ show (length files)
     return files
     where
     recentAge :: POSIXTime
     recentAge = 3600
 
-getServerFiles :: ServiceConfig -> T.Text -> IO CloudFileList
-getServerFiles ServiceConfig{..} queryText = do
+getServerFiles :: T.Text -> AwsMonad CloudFileList
+getServerFiles queryText = do
     let query = (select queryText) { sConsistentRead = True }
-    items <- runConduitRes $
-        awsIteratedList scConfig defServiceConfig scManager query
+    conf <- awsAsks acLegacyConf
+    manager <- liftIO $ newManager tlsManagerSettings
+    items <- liftResourceT $ runConduit $
+        awsIteratedList conf defServiceConfig manager query
             .| sinkList
     return $ sortBy (compare `on` fst) $ mapMaybe conv items
     where
@@ -123,7 +137,7 @@ getServerFiles ServiceConfig{..} queryText = do
     conv Item{..} = do
         filehash <- getAttr "hash" itemData
         if T.null filehash
-            then return ( EntryName itemName, CloudDeleteMarker )
+            then return (EntryName itemName, CloudDeleteMarker)
             else do
                 size <- readDec =<< getAttr "size" itemData
                 mtime <- readDec =<< getAttr "mtime" itemData

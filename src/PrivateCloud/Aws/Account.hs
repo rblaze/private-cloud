@@ -1,64 +1,60 @@
-{-# Language OverloadedStrings, FlexibleContexts #-}
+{-# Language OverloadedStrings #-}
 module PrivateCloud.Aws.Account where
 
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad
-import Control.Monad.IO.Class
-import Data.ByteArray
-import Data.ByteArray.Pack
+import Data.ByteArray as BA
 import Data.Monoid
+import Data.Tagged
 import Network.AWS
 import Network.AWS.IAM as IAM hiding (AccessKey)
 import Network.AWS.S3 as S3
-import Network.AWS.SDB as SDB
+--import Network.AWS.SDB as SDB
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-import PrivateCloud.CloudProvider
+import PrivateCloud.AwsMonad
+import PrivateCloud.Exception
 
 -- XXX temporary imports to workaround amazonka bugs
 import Aws.Aws
 import Aws.Core
 import Aws.SimpleDb as AwsSDB
 
-data AwsInternalError = AwsInternalError String
-    deriving Show
-
-instance Exception AwsInternalError
-
-createCloudInstance :: (MonadAWS (CloudMonad p), ByteArray ba) => T.Text -> CloudMonad p ba
-createCloudInstance instanceId = do
-    let username = "privatecloud-user-" <> instanceId
-    let domainName = "privatecloud-" <> instanceId
-    let bucketName = "privatecloud-" <> instanceId
-    let policyName = "PrivateCloud-Access-" <> instanceId
+createCloudInstance :: ByteArray ba => T.Text -> AwsMonad ba
+createCloudInstance cloudid = do
+    let userName = "privatecloud-user-" <> cloudid
+    let policyName = "PrivateCloud-Access-" <> cloudid
+    bucketName <- awsAsks acBucket
+    domainName <- awsAsks acDomain
 
     -- create user
-    userresp <- send $ IAM.createUser username
+    userresp <- send $ IAM.createUser userName
     userarn <- case userresp ^. cursUser of
         Just info -> return $ info ^. uARN
-        Nothing -> throw $ AwsInternalError "Invalid CreateUser response"
+        Nothing -> throw $ CloudInternalError "Invalid CreateUser response"
     accountid <- case T.split (== ':') userarn of
         [_ , _, _, _, accountid, _] -> return accountid
-        _ -> throw $ AwsInternalError "Invalid user ARN"
+        _ -> throw $ CloudInternalError "Invalid user ARN"
 
-    let userPolicy = T.replace "BUCKET" bucketName $
+    let BucketName bucketstr = bucketName
+    let userPolicy = T.replace "BUCKET" bucketstr $
             T.replace "ACCOUNTID" accountid $
             T.replace "DOMAIN" domainName policyTemplate
 
     -- set user policy
-    void $ send $ IAM.putUserPolicy username policyName userPolicy
-    keyresp <- send $ IAM.createAccessKey & cakUserName ?~ username
+    void $ send $ IAM.putUserPolicy userName policyName userPolicy
+    keyresp <- send $ IAM.createAccessKey & cakUserName ?~ userName
 
     let info = keyresp ^. cakrsAccessKey
     let keyId = info ^. akAccessKeyId
     let secretKey = info ^. akSecretAccessKey
 
     -- create storage bucket
-    void $ send $ S3.createBucket (BucketName bucketName)
-    void $ send $ S3.putBucketVersioning (BucketName bucketName) $
+    void $ send $ S3.createBucket bucketName
+    void $ send $ S3.putBucketVersioning bucketName $
         versioningConfiguration & vcStatus ?~ BVSEnabled
     {- XXX: API broken in amazonka
     void $ send $
@@ -74,25 +70,21 @@ createCloudInstance instanceId = do
     {- XXX: API broken in amazonka
     void $ send $ SDB.createDomain domainName
     -}
-
-    -- pack credentials
-    let keyidstr = T.encodeUtf8 keyId
-    let secretkeystr = T.encodeUtf8 secretKey
-    let totalSize = BS.length keyidstr + 1 + BS.length secretkeystr
-
     -- XXX create domain via aws call
     -- drop CreateDomain permission too
-    cred <- makeCredentials keyidstr secretkeystr
-    let awsconfig = Configuration
-            { timeInfo = Timestamp
-            , credentials = cred
-            , logger = defaultLog Warning
-            }
-    void $ liftIO $ simpleAws awsconfig defServiceConfig $ AwsSDB.createDomain domainName
+    awsconfig <- awsAsks acLegacyConf
+    void $ simpleAws awsconfig defServiceConfig $ AwsSDB.createDomain domainName
 
-    case fill totalSize $ putBytes keyidstr >> putWord8 32 >> putBytes secretkeystr of
-        Left err -> throw $ AwsInternalError err
-        Right ba -> return ba
+    -- pack credentials
+    return $ BA.concat
+        [ T.encodeUtf8 keyId
+        , BS.singleton 0
+        , T.encodeUtf8 secretKey
+        , BS.singleton 0
+        , T.encodeUtf8 bucketstr
+        , BS.singleton 0
+        , T.encodeUtf8 domainName
+        ]
 
 
 policyTemplate :: T.Text
@@ -125,7 +117,6 @@ policyTemplate = "{                                                 \
 \            \"Action\": [                                          \
 \                \"sdb:BatchDeleteAttributes\",                     \
 \                \"sdb:BatchPutAttributes\",                        \
-\                \"sdb:CreateDomain\",                              \
 \                \"sdb:DeleteAttributes\",                          \
 \                \"sdb:GetAttributes\",                             \
 \                \"sdb:PutAttributes\",                             \
@@ -137,3 +128,22 @@ policyTemplate = "{                                                 \
 \        }                                                          \
 \    ]                                                              \
 \}"
+
+newContext :: ByteArray ba => Tagged p ba -> IO AwsContext
+newContext (Tagged creds) = do
+    [keyid, key, bucketName, domainName] <-
+        case BS.split 0 (convert creds) of
+            v@[_, _, _, _] -> return v
+            _ -> throw $ CloudInternalError "Invalid credentials format"
+    env <- newEnv $ FromKeys (AccessKey keyid) (SecretKey key)
+    legacyAuth <- makeCredentials keyid key
+    return AwsContext
+        { acEnv = env
+        , acBucket = BucketName $ T.decodeUtf8 bucketName
+        , acDomain = T.decodeUtf8 domainName
+        , acLegacyConf = Configuration
+            { timeInfo = Timestamp
+            , credentials = legacyAuth
+            , logger = defaultLog Warning
+            }
+        }

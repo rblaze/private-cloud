@@ -7,6 +7,7 @@ module PrivateCloud.Sync
     ) where
 
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.Maybe
 import Data.Word
 import System.FilePath
@@ -14,7 +15,7 @@ import System.Log.Logger
 
 import PrivateCloud.Crypto
 import PrivateCloud.FileInfo
-import PrivateCloud.ServiceConfig
+import PrivateCloud.Monad
 
 syncLoggerName :: String
 syncLoggerName = "PrivateCloud.Sync"
@@ -49,43 +50,43 @@ data FileAction
         }
     deriving (Show, Eq)
 
-logConflict :: EntryName -> Word64 -> Word64 -> IO ()
+logConflict :: MonadIO m => EntryName -> Word64 -> Word64 -> m ()
 logConflict file localSize cloudSize =
-    noticeM syncLoggerName $ "#CONFLICT #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#CONFLICT #file " ++ show file
         ++ " #localsize " ++ show localSize ++ " #serversize " ++ show cloudSize
 
-logLocalNew :: EntryName -> Word64 -> IO ()
+logLocalNew :: MonadIO m => EntryName -> Word64 -> m ()
 logLocalNew file size =
-    noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ show file ++ " #size " ++ show size
+    liftIO $ noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ show file ++ " #size " ++ show size
 
-logLocalDelete :: EntryName -> IO ()
-logLocalDelete file = noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ show file
+logLocalDelete :: MonadIO m => EntryName -> m ()
+logLocalDelete file = liftIO $ noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ show file
 
-logLocalChange :: EntryName -> Word64 -> Word64 -> IO ()
+logLocalChange :: MonadIO m => EntryName -> Word64 -> Word64 -> m ()
 logLocalChange file oldSize newSize =
-    noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ show file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
+    liftIO $ noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ show file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
-logLocalMetadataChange :: EntryName -> Timestamp -> Timestamp -> IO ()
+logLocalMetadataChange :: MonadIO m => EntryName -> Timestamp -> Timestamp -> m ()
 logLocalMetadataChange file oldTs newTs =
-    noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ show file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
-logServerNew :: EntryName -> Word64 -> IO ()
+logServerNew :: MonadIO m => EntryName -> Word64 -> m ()
 logServerNew file size =
-    noticeM syncLoggerName $ "#NEW_SERVER #file " ++ show file ++ " #size " ++ show size
+    liftIO $ noticeM syncLoggerName $ "#NEW_SERVER #file " ++ show file ++ " #size " ++ show size
 
-logServerDelete :: EntryName -> IO ()
-logServerDelete file = noticeM syncLoggerName $ "#DEL_SERVER #file " ++ show file
+logServerDelete :: MonadIO m => EntryName -> m ()
+logServerDelete file = liftIO $ noticeM syncLoggerName $ "#DEL_SERVER #file " ++ show file
 
-logServerChange :: EntryName -> DbFileInfo -> CloudFileInfo -> IO ()
+logServerChange :: MonadIO m => EntryName -> DbFileInfo -> CloudFileInfo -> m ()
 logServerChange file oldInfo newInfo =
-    noticeM syncLoggerName $ "#UPD_SERVER #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#UPD_SERVER #file " ++ show file
         ++ " #size " ++ show (cfLength newInfo)
         ++ " #oldsize " ++  show (dfLength oldInfo)
 
-logServerMetadataChange :: EntryName -> Timestamp -> Timestamp -> IO ()
+logServerMetadataChange :: MonadIO m => EntryName -> Timestamp -> Timestamp -> m ()
 logServerMetadataChange file oldTs newTs =
-    noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ show file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
 zipLists3 :: Ord f => [(f, a)] -> [(f, b)] -> [(f, c)] -> [(f, Maybe a, Maybe b, Maybe c)]
@@ -109,18 +110,22 @@ zipLists3 as bs cs = (firstName, aval, bval, cval) : zipLists3 as' bs' cs'
     headMay [] = Nothing
     headMay (x:_) = Just x
 
-getAllFileChanges :: ServiceConfig -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
-getAllFileChanges ServiceConfig{..} = getFileChanges False scRoot
+getAllFileChanges :: LocalFileList -> DbFileList -> CloudFileList -> PrivateCloud p [FileAction]
+getAllFileChanges local db cloud = do
+    root <- rootDir
+    getFileChanges False root local db cloud
 
-getRecentFileChanges :: ServiceConfig -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
-getRecentFileChanges ServiceConfig{..} = getFileChanges True scRoot
+getRecentFileChanges :: LocalFileList -> DbFileList -> CloudFileList -> PrivateCloud p [FileAction]
+getRecentFileChanges local db cloud = do
+    root <- rootDir
+    getFileChanges True root local db cloud
 
-getFileChanges :: Bool -> FilePath -> LocalFileList -> DbFileList -> CloudFileList -> IO [FileAction]
+getFileChanges :: Bool -> FilePath -> LocalFileList -> DbFileList -> CloudFileList -> PrivateCloud p [FileAction]
 getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
     changes <- forM files $ \case
         (_, Nothing, Nothing, Nothing) -> do
             -- should never happen
-            criticalM syncLoggerName $ "internal error in sync: two Nothings in zip " ++ show files
+            liftIO $ criticalM syncLoggerName $ "internal error in sync: two Nothings in zip " ++ show files
             error "internal error"
         (filename, Nothing, Nothing, Just (CloudFile cloudinfo)) -> do
             -- server file added
@@ -181,7 +186,7 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                 else do
                     -- local deleted, but cloud has newer version
                     -- download it
-                    noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ show filename ++ " #size " ++ show cfLength
+                    liftIO $ noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ show filename ++ " #size " ++ show cfLength
                     return $ Just $ UpdateLocalFile filename cloudinfo
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) | onlyRecentServerFiles -> do
             -- file deleted on server or we have no server status
@@ -250,7 +255,7 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                         else syncModTimes filename dfHash localinfo cloudinfo
 
     return $ catMaybes changes
-    where
+  where
     files = zipLists3 localFiles dbFiles cloudFiles
     isLocalFileChangedFast filename newLength oldLength newTs oldTs oldHash
         | newLength /= oldLength = return True  -- length changed => file changed
@@ -260,8 +265,8 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
         | newLength /= oldLength = return True
         | otherwise = isLocalFileContentChanged filename oldHash
     isLocalFileContentChanged filename oldHash = do
-        infoM syncLoggerName $ "#CHECK_HASH #file " ++ show filename
-        localHash <- getFileHash (root </> entry2path filename)
+        liftIO $ infoM syncLoggerName $ "#CHECK_HASH #file " ++ show filename
+        localHash <- liftIO $ getFileHash (root </> entry2path filename)
         return $ localHash /= oldHash
     syncModTimes filename hash localinfo cloudinfo = do
         let LocalFileInfo{..} = localinfo

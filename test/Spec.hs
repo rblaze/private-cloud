@@ -1,6 +1,7 @@
 {-# Language CPP, OverloadedStrings, LambdaCase, RecordWildCards #-}
 import Control.Monad
 import Control.Monad.IO.Class
+import Data.ByteArray as BA
 import Data.ByteArray.Encoding
 import System.Directory
 import System.Directory.Tree
@@ -23,7 +24,8 @@ import PrivateCloud.FileInfo
 import PrivateCloud.LocalDb
 import PrivateCloud.Monad
 import PrivateCloud.Sync
-import PrivateCloud.ServiceConfig
+
+import Provider
 
 main :: IO ()
 main = defaultMain tests
@@ -44,7 +46,6 @@ tests = testGroup "PrivateCloud tests"
         ]
     , testGroup "Local database tests"
         [ testCase "Add and read works" testDbAddRead
-        , testCase "Double initialization don't cause data loss" testDbDoubleInit
         , testCase "Update works" testDbUpdate
         , testCase "Remove works" testDbDelete
         ]
@@ -155,33 +156,14 @@ testDbAddRead = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    [(fname, info)] <- runPrivateCloudT tmpdir [] $ do
-        initDatabase
+    _ <- setupTestCloud tmpdir "foobar"
+    [(fname, info)] <- runTestCloud tmpdir [] (const $ return $ Just BA.empty) $ do
         putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
             , dfModTime = srcts
             }
         getFileList
-    assertEqual "invalid filename read" (EntryName "foo") fname
-    assertEqual "invalid hash read" srchash (dfHash info)
-    assertEqual "invalid size read" srcsize (dfLength info)
-    assertEqual "invalid modtime read" srcts (dfModTime info)
-
-testDbDoubleInit :: Assertion
-testDbDoubleInit = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
-    let srchash = Hash "12345"
-    let srcsize = 123
-    let srcts = Timestamp 9876
-    runPrivateCloudT tmpdir [] $ do
-        initDatabase
-        putFileInfo (EntryName "foo") DbFileInfo
-            { dfHash = srchash
-            , dfLength = srcsize
-            , dfModTime = srcts
-            }
-        initDatabase
-    [(fname, info)] <- runPrivateCloudT tmpdir [] getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" srchash (dfHash info)
     assertEqual "invalid size read" srcsize (dfLength info)
@@ -195,8 +177,8 @@ testDbUpdate = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let secondHash = Hash "78901"
     let secondSize = 1024
     let secondts = Timestamp 5436
-    runPrivateCloudT tmpdir [] $ do
-        initDatabase
+    _ <- setupTestCloud tmpdir "foobar"
+    runTestCloud tmpdir [] (const $ return $ Just BA.empty) $ do
         putFileInfo (EntryName "foo") DbFileInfo
             { dfHash = srchash
             , dfLength = srcsize
@@ -207,7 +189,7 @@ testDbUpdate = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
             , dfLength = secondSize
             , dfModTime = secondts
             }
-    [(fname, info)] <- runPrivateCloudT tmpdir [] getFileList
+    [(fname, info)] <- runTestCloud tmpdir [] (const $ return $ Just BA.empty) getFileList
     assertEqual "invalid filename read" (EntryName "foo") fname
     assertEqual "invalid hash read" secondHash (dfHash info)
     assertEqual "invalid size read" secondSize (dfLength info)
@@ -218,8 +200,8 @@ testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     let srchash = Hash "12345"
     let srcsize = 123
     let srcts = Timestamp 9876
-    runPrivateCloudT tmpdir [] $ do
-        initDatabase
+    _ <- setupTestCloud tmpdir "foobar"
+    runTestCloud tmpdir [] (const $ return $ Just BA.empty) $ do
         v <- getFileList
         liftIO $ assertEqual "unexpected data found" [] v
         putFileInfo (EntryName "foo") DbFileInfo
@@ -227,7 +209,7 @@ testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
             , dfLength = srcsize
             , dfModTime = srcts
             }
-    [(fname, info)] <- runPrivateCloudT tmpdir [] $ do
+    [(fname, info)] <- runTestCloud tmpdir [] (const $ return $ Just BA.empty) $ do
         v <- getFileList
         deleteFileInfo (EntryName "foo")
         return v
@@ -236,12 +218,12 @@ testDbDelete = withSystemTempDirectory "sqlite.test" $ \tmpdir -> do
     assertEqual "invalid size read" srcsize (dfLength info)
     assertEqual "invalid modtime read" srcts (dfModTime info)
 
-    v <- runPrivateCloudT tmpdir [] getFileList
+    v <- runTestCloud tmpdir [] (const $ return $ Just BA.empty) getFileList
     assertEqual "data found after delete" [] v
 
 testGetFileChanges :: Assertion
-testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> withServiceConfig root "test" $ \config -> do
-    runPrivateCloudT root [dbPattern] initDatabase
+testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
+    _ <- setupTestCloud root "foobar"
     createDirectoryIfMissing True (root </> "a" </> "b" </> "c" </> "d")
     createDirectoryIfMissing True (root </> "a" </> "b" </> "e" </> "f")
 #ifndef WINBUILD
@@ -252,8 +234,9 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
 
     let getChanges' func serverFiles = do
             localFiles <- map func . unrollTreeFiles [dbPattern] . normalizeTree <$> makeTree root
-            dbFiles <- runPrivateCloudT root [dbPattern] getFileList
-            getAllFileChanges config localFiles dbFiles serverFiles
+            runTestCloud root [dbPattern] (const $ return $ Just BA.empty) $ do
+                dbFiles <- getFileList
+                getAllFileChanges localFiles dbFiles serverFiles
 
     let getChanges = getChanges' id
 
@@ -272,7 +255,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> with
                 }
 
     let updateDb changes =
-            runPrivateCloudT root [dbPattern] $ forM_ changes $ \case
+            runTestCloud root [dbPattern] (const $ return $ Just BA.empty) $ forM_ changes $ \case
                 UpdateLocalFile{..} -> putFileInfo faFilename (cloud2db faCloudInfo)
                 UpdateLocalMetadata{..} -> putFileInfo faFilename (cloud2db faCloudInfo)
                 DeleteLocalFile{..} -> deleteFileInfo faFilename

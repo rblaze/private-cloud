@@ -15,7 +15,7 @@ data Options
     = Run
         { root :: FilePath
         , loglevel :: Priority
-        , accountId :: String
+        , accountId :: String -- TODO remove
         , syncInterval :: Word
         , fullSyncInterval :: Word
         , cleanupInterval :: Word

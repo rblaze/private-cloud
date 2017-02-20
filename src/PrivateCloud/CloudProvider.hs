@@ -1,12 +1,9 @@
-{-# Language TypeFamilies, StandaloneDeriving, FlexibleContexts, GeneralizedNewtypeDeriving, UndecidableInstances #-}
+{-# Language TypeFamilies, StandaloneDeriving, GeneralizedNewtypeDeriving, UndecidableInstances #-}
 module PrivateCloud.CloudProvider where
 
-import Control.Exception.Safe
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
 import Data.ByteArray
-import Network.AWS
-import qualified Data.Text as T
+import Data.Tagged
 
 import PrivateCloud.FileInfo
 
@@ -14,27 +11,17 @@ newtype CloudMonad p a = CloudMonad ((ProviderMonad p) a)
 deriving instance Functor (ProviderMonad p) => Functor (CloudMonad p)
 deriving instance Applicative (ProviderMonad p) => Applicative (CloudMonad p)
 deriving instance Monad (ProviderMonad p) => Monad (CloudMonad p)
-deriving instance MonadCatch (ProviderMonad p) => MonadCatch (CloudMonad p)
-deriving instance MonadIO (ProviderMonad p) => MonadIO (CloudMonad p)
-deriving instance MonadThrow (ProviderMonad p) => MonadThrow (CloudMonad p)
-deriving instance MonadAWS (ProviderMonad p) => MonadAWS (CloudMonad p)
 
 -- | Cloud services used as a backend for private cloud instance.
 class CloudProvider p where
     type ProviderMonad p :: * -> *
     type ProviderContext p :: *
 
+    -- | Create provider context from saved credentials, used to run cloud instance.
+    newContext :: ByteArray ba => Tagged p ba -> IO (ProviderContext p)
+
     -- | Run actions in cloud monad with given context.
-    runCloud :: MonadResource m => ProviderContext p -> CloudMonad p a -> m a
-
-    -- | Create access credentials with minimal required permissions.
-    -- Runs in elevated context.
-    -- Elevated context is created in provider and application-dependent way,
-    -- outside of the scope of `CloudProvider`
-    createCloudInstance :: ByteArray ba => T.Text -> CloudMonad p ba
-
-    -- | Create low-privileged provider context, used to run cloud instance.
-    newContext :: p -> IO (ProviderContext p)
+    runCloud :: MonadIO m => Tagged p (ProviderContext p) -> CloudMonad p a -> m a
 
     -- | Update or create file information in cloud.
     uploadFileInfo :: EntryName -> CloudFileInfo -> CloudMonad p ()
@@ -51,9 +38,9 @@ class CloudProvider p where
     -- length and hash of bytes uploaded.
     uploadFile :: EntryName -> FilePath -> CloudMonad p (VersionId, Length, Hash)
     -- | Download file from cloud storage.
-    downloadFile :: EntryName -> FilePath -> CloudMonad p ()
+    downloadFile :: EntryName -> VersionId -> FilePath -> CloudMonad p ()
     -- | Delete file in cloud storage.
-    deleteFile :: EntryName -> CloudMonad p ()
+    -- deleteFile :: EntryName -> CloudMonad p ()
 
     -- | Clean obsolete entries from cloud database and storage.
     cleanupCloud :: CloudMonad p ()
