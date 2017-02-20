@@ -1,5 +1,5 @@
 {-# Language OverloadedStrings, RecordWildCards, GeneralizedNewtypeDeriving, StandaloneDeriving, TypeFamilies, ScopedTypeVariables, LambdaCase #-}
-module PrivateCloud.Monad
+module PrivateCloud.Cloud.Monad
     ( PrivateCloud
     , cloudId
     , cloudIdSetting
@@ -22,8 +22,8 @@ import System.FilePath
 import System.FilePath.Glob
 import qualified Data.Text as T
 
-import PrivateCloud.CloudProvider
-import PrivateCloud.Exception
+import PrivateCloud.Cloud.Exception
+import PrivateCloud.Provider.Class
 
 dbName :: FilePath
 dbName = ".privatecloud"

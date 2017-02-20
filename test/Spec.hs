@@ -18,12 +18,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as T
 
-import PrivateCloud.Crypto
-import PrivateCloud.DirTree
-import PrivateCloud.FileInfo
-import PrivateCloud.LocalDb
-import PrivateCloud.Monad
-import PrivateCloud.Sync
+import PrivateCloud.Cloud.Crypto
+import PrivateCloud.Cloud.DirTree
+import PrivateCloud.Cloud.LocalDb
+import PrivateCloud.Cloud.Monad
+import PrivateCloud.Cloud.Sync
+import PrivateCloud.Provider.FileInfo
 
 import Provider
 

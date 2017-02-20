@@ -1,5 +1,5 @@
 {-# Language CPP, OverloadedStrings, NamedFieldPuns, RecordWildCards #-}
-module PrivateCloud.DirTree
+module PrivateCloud.Cloud.DirTree
     ( makeTree
     , unrollTreeFiles
     ) where
@@ -15,7 +15,7 @@ import System.Win32.File
 import System.Posix.Files
 #endif
 
-import PrivateCloud.FileInfo
+import PrivateCloud.Provider.FileInfo
 
 unrollTreeFiles :: [Pattern] -> DirTree (Maybe LocalFileInfo) -> LocalFileList
 unrollTreeFiles exclusions tree = go (EntryName "") tree{name = ""}

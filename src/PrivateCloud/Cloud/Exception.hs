@@ -1,4 +1,4 @@
-module PrivateCloud.Exception where
+module PrivateCloud.Cloud.Exception where
 
 import Control.Exception.Safe
 

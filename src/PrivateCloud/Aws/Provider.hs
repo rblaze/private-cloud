@@ -1,5 +1,5 @@
 {-# Language TypeFamilies #-}
-module PrivateCloud.AmazonWebServices where
+module PrivateCloud.Aws.Provider where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
@@ -16,9 +16,9 @@ import PrivateCloud.Aws.Account as AWS
 import PrivateCloud.Aws.S3 as S3
 import PrivateCloud.Aws.SimpleDb as SDB
 import PrivateCloud.Aws.Cleanup
-import PrivateCloud.AwsMonad
-import PrivateCloud.CloudProvider
-import PrivateCloud.Monad
+import PrivateCloud.Aws.Monad
+import PrivateCloud.Provider.Class
+import PrivateCloud.Cloud.Monad
 
 --- FIXME remove when amazonka fixed
 import Aws.Aws

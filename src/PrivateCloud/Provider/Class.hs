@@ -1,11 +1,11 @@
 {-# Language TypeFamilies, StandaloneDeriving, GeneralizedNewtypeDeriving, UndecidableInstances #-}
-module PrivateCloud.CloudProvider where
+module PrivateCloud.Provider.Class where
 
 import Control.Monad.IO.Class
 import Data.ByteArray
 import Data.Tagged
 
-import PrivateCloud.FileInfo
+import PrivateCloud.Provider.FileInfo
 
 newtype CloudMonad p a = CloudMonad ((ProviderMonad p) a)
 deriving instance Functor (ProviderMonad p) => Functor (CloudMonad p)

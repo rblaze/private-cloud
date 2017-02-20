@@ -6,8 +6,8 @@ import Data.ByteArray as BA
 import System.FilePath.Glob
 import qualified Data.Text as T
 
-import PrivateCloud.CloudProvider
-import PrivateCloud.Monad
+import PrivateCloud.Cloud.Monad
+import PrivateCloud.Provider.Class
 
 data TestCloud = TestCloud
 

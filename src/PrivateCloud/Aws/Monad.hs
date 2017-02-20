@@ -1,5 +1,5 @@
 {-# Language GeneralizedNewtypeDeriving #-}
-module PrivateCloud.AwsMonad where
+module PrivateCloud.Aws.Monad where
 
 import Control.Exception.Safe
 import Control.Monad.Base

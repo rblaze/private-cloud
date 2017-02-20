@@ -15,10 +15,9 @@ import System.Log.Logger
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
--- import PrivateCloud.Aws
-import PrivateCloud.AwsMonad
-import PrivateCloud.Exception
-import PrivateCloud.FileInfo
+import PrivateCloud.Aws.Monad
+import PrivateCloud.Cloud.Exception
+import PrivateCloud.Provider.FileInfo
 
 s3LoggerName :: String
 s3LoggerName = "PrivateCloud.AWS.S3"

@@ -1,5 +1,5 @@
 {-# Language OverloadedStrings, RecordWildCards #-}
-module PrivateCloud.LocalDb
+module PrivateCloud.Cloud.LocalDb
     ( deleteFileInfo
     , getFileList
     , putFileInfo
@@ -8,8 +8,8 @@ module PrivateCloud.LocalDb
 import Control.Monad.IO.Class
 import Database.SQLite.Simple
 
-import PrivateCloud.Monad
-import PrivateCloud.FileInfo
+import PrivateCloud.Cloud.Monad
+import PrivateCloud.Provider.FileInfo
 
 withDbConnection :: (Connection -> IO a) -> PrivateCloud p a
 withDbConnection f = do

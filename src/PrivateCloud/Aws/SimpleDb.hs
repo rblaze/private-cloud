@@ -22,8 +22,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as T
 
-import PrivateCloud.AwsMonad
-import PrivateCloud.FileInfo
+import PrivateCloud.Aws.Monad
+import PrivateCloud.Provider.FileInfo
 
 sdbLoggerName :: String
 sdbLoggerName = "PrivateCloud.AWS.SimpleDb"

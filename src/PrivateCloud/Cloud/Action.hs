@@ -1,5 +1,5 @@
 {-# Language LambdaCase, RecordWildCards, TypeFamilies #-}
-module PrivateCloud.Action
+module PrivateCloud.Cloud.Action
     ( syncAllChanges
     , syncRecentChanges
     ) where
@@ -9,12 +9,12 @@ import Control.Monad.IO.Class
 import System.Directory
 import System.FilePath
 
-import PrivateCloud.CloudProvider
-import PrivateCloud.DirTree
-import PrivateCloud.FileInfo
-import PrivateCloud.LocalDb
-import PrivateCloud.Monad
-import PrivateCloud.Sync
+import PrivateCloud.Cloud.DirTree
+import PrivateCloud.Cloud.LocalDb
+import PrivateCloud.Cloud.Monad
+import PrivateCloud.Cloud.Sync
+import PrivateCloud.Provider.Class
+import PrivateCloud.Provider.FileInfo
 
 syncAllChanges :: CloudProvider p => PrivateCloud p ()
 syncAllChanges =

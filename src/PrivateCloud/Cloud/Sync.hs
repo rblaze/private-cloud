@@ -1,5 +1,5 @@
 {-# Language MultiWayIf, LambdaCase, RecordWildCards #-}
-module PrivateCloud.Sync
+module PrivateCloud.Cloud.Sync
     ( FileAction(..)
     , getAllFileChanges
     , getRecentFileChanges
@@ -13,9 +13,9 @@ import Data.Word
 import System.FilePath
 import System.Log.Logger
 
-import PrivateCloud.Crypto
-import PrivateCloud.FileInfo
-import PrivateCloud.Monad
+import PrivateCloud.Cloud.Crypto
+import PrivateCloud.Cloud.Monad
+import PrivateCloud.Provider.FileInfo
 
 syncLoggerName :: String
 syncLoggerName = "PrivateCloud.Sync"

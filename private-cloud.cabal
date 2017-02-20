@@ -15,22 +15,22 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     PrivateCloud.Action
-                       PrivateCloud.AmazonWebServices
-                       PrivateCloud.AwsMonad
-                       PrivateCloud.Aws.Account
+  exposed-modules:     PrivateCloud.Aws.Account
                        PrivateCloud.Aws.Cleanup
                        PrivateCloud.Aws.Logging
+                       PrivateCloud.Aws.Monad
+                       PrivateCloud.Aws.Provider
                        PrivateCloud.Aws.S3
                        PrivateCloud.Aws.SimpleDb
-                       PrivateCloud.CloudProvider
-                       PrivateCloud.Crypto
-                       PrivateCloud.DirTree
-                       PrivateCloud.Exception
-                       PrivateCloud.FileInfo
-                       PrivateCloud.LocalDb
-                       PrivateCloud.Monad
-                       PrivateCloud.Sync
+                       PrivateCloud.Cloud.Action
+                       PrivateCloud.Cloud.Crypto
+                       PrivateCloud.Cloud.DirTree
+                       PrivateCloud.Cloud.Exception
+                       PrivateCloud.Cloud.LocalDb
+                       PrivateCloud.Cloud.Monad
+                       PrivateCloud.Cloud.Sync
+                       PrivateCloud.Provider.Class
+                       PrivateCloud.Provider.FileInfo
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5
                      , Glob

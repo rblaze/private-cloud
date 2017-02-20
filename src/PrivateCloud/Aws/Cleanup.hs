@@ -17,10 +17,10 @@ import Network.HTTP.Client.TLS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
 
-import PrivateCloud.AwsMonad
 import PrivateCloud.Aws.Logging
+import PrivateCloud.Aws.Monad
 import PrivateCloud.Aws.SimpleDb
-import PrivateCloud.FileInfo
+import PrivateCloud.Provider.FileInfo
 
 import Aws.Aws
 import Aws.Core

@@ -20,10 +20,10 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-import PrivateCloud.Action
-import PrivateCloud.AmazonWebServices
-import PrivateCloud.CloudProvider
-import PrivateCloud.Monad
+import PrivateCloud.Aws.Provider
+import PrivateCloud.Cloud.Action
+import PrivateCloud.Cloud.Monad
+import PrivateCloud.Provider.Class
 
 import Options
 

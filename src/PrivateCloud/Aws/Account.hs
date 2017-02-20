@@ -15,8 +15,8 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
-import PrivateCloud.AwsMonad
-import PrivateCloud.Exception
+import PrivateCloud.Aws.Monad
+import PrivateCloud.Cloud.Exception
 
 -- XXX temporary imports to workaround amazonka bugs
 import Aws.Aws

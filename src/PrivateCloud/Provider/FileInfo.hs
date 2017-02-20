@@ -1,5 +1,5 @@
 {-# Language OverloadedStrings, GeneralizedNewtypeDeriving #-}
-module PrivateCloud.FileInfo where
+module PrivateCloud.Provider.FileInfo where
 
 import Crypto.Hash
 import Crypto.MAC.HMAC
