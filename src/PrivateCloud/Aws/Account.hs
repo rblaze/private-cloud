@@ -16,6 +16,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Aws.Monad
+import PrivateCloud.Aws.Logging
 import PrivateCloud.Cloud.Exception
 
 -- XXX temporary imports to workaround amazonka bugs
@@ -138,7 +139,7 @@ newContext (Tagged creds) = do
     env <- newEnv $ FromKeys (AccessKey keyid) (SecretKey key)
     legacyAuth <- makeCredentials keyid key
     return AwsContext
-        { acEnv = env
+        { acEnv = env & envLogger .~ amazonkaLogger
         , acBucket = BucketName $ T.decodeUtf8 bucketName
         , acDomain = T.decodeUtf8 domainName
         , acLegacyConf = Configuration

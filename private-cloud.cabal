@@ -40,6 +40,7 @@ library
                      , amazonka-iam
                      , amazonka-s3
                      , amazonka-sdb
+                     , blaze-builder
                      , bytestring
                      , conduit
                      , conduit-combinators
