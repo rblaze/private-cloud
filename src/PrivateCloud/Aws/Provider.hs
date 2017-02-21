@@ -1,10 +1,11 @@
-{-# Language TypeFamilies #-}
+{-# Language TypeFamilies, OverloadedStrings #-}
 module PrivateCloud.Aws.Provider where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Resource
 import Data.ByteArray
+import Data.Monoid
 import Data.Tagged
 import Network.AWS
 import Network.AWS.S3.Types
@@ -57,8 +58,8 @@ setupAwsPrivateCloud root cloudid accesskeyid secretkey = do
     legacyAuth <- makeCredentials accesskeyid secretkey
     let ctx = Tagged AwsContext
             { acEnv = env
-            , acBucket = BucketName cloudid
-            , acDomain = cloudid
+            , acBucket = BucketName $ "privatecloud-" <> cloudid
+            , acDomain = "privatecloud-" <> cloudid
             , acLegacyConf = Configuration
                 { timeInfo = Timestamp
                 , credentials = legacyAuth

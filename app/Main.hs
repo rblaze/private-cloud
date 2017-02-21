@@ -55,15 +55,14 @@ run Create{..} = do
             ++ ", can't create new cloud instance"
         exitFailure
 
-    account <- if null cloudId
+    instanceId <- if null cloudId
                 then do
                     randomId <- getStdRandom random
                     return $ show (randomId :: Word32)
                 else
                     return cloudId
 
-    let accountName = "privatecloud-" ++ account
-    putStrLn $ "Creating account " ++ accountName
+    putStrLn $ "Creating cloud instance " ++ instanceId
 
     (rootKeyId, rootSecretKey) <-
         runInputT (defaultSettings { autoAddHistory = False }) $ do
@@ -76,9 +75,10 @@ run Create{..} = do
             return (encodeUtf keyid, encodeUtf secret)
 
     createDirectoryIfMissing True root
-    credentials <- setupAwsPrivateCloud root (T.pack accountName) rootKeyId rootSecretKey
+    credentials <- setupAwsPrivateCloud root (T.pack instanceId) rootKeyId rootSecretKey
     withCredentialStore $ \store ->
-        putCredential store accountName (credentials :: ScrubbedBytes)
+        let credName = "privatecloud-" ++ instanceId
+         in putCredential store credName (credentials :: ScrubbedBytes)
 
 run Connect{..} = undefined
 
@@ -101,8 +101,9 @@ run Run{..} = do
                 return pattern
 
     let getCred cloudid =
-            withCredentialStore $ \store ->
-                getCredential store (T.unpack cloudid) :: IO (Maybe ScrubbedBytes)
+            let credName = "privatecloud-" ++ T.unpack cloudid
+             in withCredentialStore $ \store ->
+                getCredential store credName :: IO (Maybe ScrubbedBytes)
 
     runAwsPrivateCloud root patterns getCred $ do
         liftIO $ noticeM mainLoggerName "#RUN"
