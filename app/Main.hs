@@ -22,7 +22,7 @@ import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Aws.Provider
 import PrivateCloud.Cloud.Action
-import PrivateCloud.Cloud.Monad
+import PrivateCloud.Cloud.Monad hiding (cloudId)
 import PrivateCloud.Provider.Class
 
 import Options
@@ -55,12 +55,12 @@ run Create{..} = do
             ++ ", can't create new cloud instance"
         exitFailure
 
-    account <- if null accountId
+    account <- if null cloudId
                 then do
                     randomId <- getStdRandom random
                     return $ show (randomId :: Word32)
                 else
-                    return accountId
+                    return cloudId
 
     let accountName = "privatecloud-" ++ account
     putStrLn $ "Creating account " ++ accountName
