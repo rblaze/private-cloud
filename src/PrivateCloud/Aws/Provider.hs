@@ -69,3 +69,16 @@ setupAwsPrivateCloud root cloudid accesskeyid secretkey = do
 
     initCloudSettings root cloudid
     runAwsCloud ctx (CloudMonad $ createCloudInstance cloudid)
+
+connectAwsPrivateCloud :: ByteArray ba => FilePath -> T.Text -> BS.ByteString -> BS.ByteString -> IO ba
+connectAwsPrivateCloud root cloudid accesskeyid secretkey = do
+    env <- newEnv $ FromKeys (AccessKey accesskeyid) (SecretKey secretkey)
+    let ctx = Tagged AwsContext
+            { acEnv = env
+            , acBucket = BucketName $ "privatecloud-" <> cloudid
+            , acDomain = "privatecloud-" <> cloudid
+            , acLegacyConf = error "legacy api call unexpected"
+            }
+
+    initCloudSettings root cloudid
+    runAwsCloud ctx (CloudMonad $ connectCloudInstance cloudid)

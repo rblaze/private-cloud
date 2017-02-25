@@ -1,5 +1,9 @@
 {-# Language OverloadedStrings #-}
-module PrivateCloud.Aws.Account where
+module PrivateCloud.Aws.Account
+    ( connectCloudInstance
+    , createCloudInstance
+    , newContext
+    ) where
 
 import Control.Exception.Safe
 import Control.Lens
@@ -47,11 +51,6 @@ createCloudInstance cloudid = do
 
     -- set user policy
     void $ send $ IAM.putUserPolicy userName policyName userPolicy
-    keyresp <- send $ IAM.createAccessKey & cakUserName ?~ userName
-
-    let info = keyresp ^. cakrsAccessKey
-    let keyId = info ^. akAccessKeyId
-    let secretKey = info ^. akSecretAccessKey
 
     -- create storage bucket
     void $ send $ S3.createBucket bucketName
@@ -72,21 +71,11 @@ createCloudInstance cloudid = do
     void $ send $ SDB.createDomain domainName
     -}
     -- XXX create domain via aws call
-    -- drop CreateDomain permission too
     awsconfig <- awsAsks acLegacyConf
     void $ simpleAws awsconfig defServiceConfig $ AwsSDB.createDomain domainName
 
-    -- pack credentials
-    return $ BA.concat
-        [ T.encodeUtf8 keyId
-        , BS.singleton 0
-        , T.encodeUtf8 secretKey
-        , BS.singleton 0
-        , T.encodeUtf8 bucketstr
-        , BS.singleton 0
-        , T.encodeUtf8 domainName
-        ]
-
+    -- create user access key
+    createCredentials userName bucketName domainName
 
 policyTemplate :: T.Text
 policyTemplate = "{                                                 \
@@ -148,3 +137,30 @@ newContext (Tagged creds) = do
             , logger = defaultLog Warning
             }
         }
+
+connectCloudInstance :: ByteArray ba => T.Text -> AwsMonad ba
+connectCloudInstance cloudid = do
+    let userName = "privatecloud-user-" <> cloudid
+    bucketName <- awsAsks acBucket
+    domainName <- awsAsks acDomain
+    createCredentials userName bucketName domainName
+
+createCredentials :: ByteArray ba => T.Text -> BucketName -> T.Text -> AwsMonad ba
+createCredentials userName (BucketName bucketName) domainName = do
+    -- create additional access key
+    keyresp <- send $ IAM.createAccessKey & cakUserName ?~ userName
+
+    let info = keyresp ^. cakrsAccessKey
+    let keyId = info ^. akAccessKeyId
+    let secretKey = info ^. akSecretAccessKey
+
+    -- pack credentials
+    return $ BA.concat
+        [ T.encodeUtf8 keyId
+        , BS.singleton 0
+        , T.encodeUtf8 secretKey
+        , BS.singleton 0
+        , T.encodeUtf8 bucketName
+        , BS.singleton 0
+        , T.encodeUtf8 domainName
+        ]

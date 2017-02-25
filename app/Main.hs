@@ -22,7 +22,7 @@ import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Aws.Provider
 import PrivateCloud.Cloud.Action
-import PrivateCloud.Cloud.Monad hiding (cloudId)
+import PrivateCloud.Cloud.Monad as Cloud
 import PrivateCloud.Provider.Class
 
 import Options
@@ -48,19 +48,19 @@ whileNothing prompt = do
         Nothing -> whileNothing prompt
 
 run :: Options -> IO ()
-run Create{..} = do
+run Create{cloudId = cloudid, ..} = do
     dbExists <- doesPathExist (root </> dbName)
     when dbExists $ do
         putStrLn $ "Local database already exists at " ++ root
             ++ ", can't create new cloud instance"
         exitFailure
 
-    instanceId <- if null cloudId
+    instanceId <- if null cloudid
                 then do
                     randomId <- getStdRandom random
                     return $ show (randomId :: Word32)
                 else
-                    return cloudId
+                    return cloudid
 
     putStrLn $ "Creating cloud instance " ++ instanceId
 
@@ -80,7 +80,25 @@ run Create{..} = do
         let credName = "privatecloud-" ++ instanceId
          in putCredential store credName (credentials :: ScrubbedBytes)
 
-run Connect{..} = undefined
+run Connect{cloudId = cloudid, ..} = do
+    (instanceId, rootKeyId, rootSecretKey) <-
+        runInputT (defaultSettings { autoAddHistory = False }) $ do
+            instanceid <- if null cloudid
+                then whileNothing $ getInputLine "Cloud instance: "
+                else return cloudid
+            keyid <- if null adminKeyId
+                then whileNothing $ getInputLine "Admin AccessKeyId: "
+                else return adminKeyId
+            secret <- if null adminSecretKey
+                then whileNothing $ getPassword (Just '*') "Admin SecretKey: "
+                else return adminSecretKey
+            return (instanceid, encodeUtf keyid, encodeUtf secret)
+
+    createDirectoryIfMissing True root
+    credentials <- connectAwsPrivateCloud root (T.pack instanceId) rootKeyId rootSecretKey
+    withCredentialStore $ \store ->
+        let credName = "privatecloud-" ++ instanceId
+         in putCredential store credName (credentials :: ScrubbedBytes)
 
 run Run{..} = do
     let fullSyncDelay = fromIntegral (fullSyncInterval * 60)
@@ -106,7 +124,8 @@ run Run{..} = do
                 getCredential store credName :: IO (Maybe ScrubbedBytes)
 
     runAwsPrivateCloud root patterns getCred $ do
-        liftIO $ noticeM mainLoggerName "#RUN"
+        instanceId <- Cloud.cloudId
+        liftIO $ noticeM mainLoggerName $ "#RUN #instance " ++ T.unpack instanceId
 
         syncAllChanges
         startTime <- liftIO getCurrentTime
