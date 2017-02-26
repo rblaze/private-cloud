@@ -8,10 +8,11 @@ import Control.Monad.IO.Class
 import Data.ByteArray (ScrubbedBytes)
 import Data.Time.Clock
 import Data.Word
-import System.Console.Haskeline
+import System.Console.Haskeline hiding (bracket)
 import System.CredentialStore
 import System.Directory
 import System.Exit
+import System.FileLock
 import System.FilePath
 import System.FilePath.Glob
 import System.Log.Logger
@@ -81,6 +82,12 @@ run Create{cloudId = cloudid, ..} = do
          in putCredential store credName (credentials :: ScrubbedBytes)
 
 run Connect{cloudId = cloudid, ..} = do
+    dbExists <- doesPathExist (root </> dbName)
+    when dbExists $ do
+        putStrLn $ "Local database already exists at " ++ root
+            ++ ", can't create new cloud instance"
+        exitFailure
+
     (instanceId, rootKeyId, rootSecretKey) <-
         runInputT (defaultSettings { autoAddHistory = False }) $ do
             instanceid <- if null cloudid
@@ -103,12 +110,13 @@ run Connect{cloudId = cloudid, ..} = do
 run Run{..} = do
     let fullSyncDelay = fromIntegral (fullSyncInterval * 60)
     let cleanupDelay = fromIntegral (cleanupInterval * 60)
+    let lockName = ".privatecloud.lock"
 
     updateGlobalLogger mainLoggerName (setLevel loglevel)
 
     noticeM mainLoggerName $ "#START #root " ++ root
 
-    patterns <- forM (dbName : exclPatterns) $ \pat -> do
+    patterns <- forM (lockName : dbName : exclPatterns) $ \pat -> do
         case simplify <$> tryCompileWith compPosix pat of
             Left errmsg -> do
                 errorM mainLoggerName $ "#EXCLUSION_ERROR #pattern " ++ show pat
@@ -123,7 +131,13 @@ run Run{..} = do
              in withCredentialStore $ \store ->
                 getCredential store credName :: IO (Maybe ScrubbedBytes)
 
-    runAwsPrivateCloud root patterns getCred $ do
+    let lockOrDie = tryLockFile (root </> lockName) Exclusive >>= \case
+            Nothing -> do
+                putStrLn $ "Service already running in " ++ root
+                exitFailure
+            Just lock -> return lock
+
+    bracket lockOrDie unlockFile $ const $ runAwsPrivateCloud root patterns getCred $ do
         instanceId <- Cloud.cloudId
         liftIO $ noticeM mainLoggerName $ "#RUN #instance " ++ T.unpack instanceId
 

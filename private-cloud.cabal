@@ -83,6 +83,7 @@ executable private-cloud-exe
                      , cmdargs
                      , credential-store
                      , directory
+                     , filelock
                      , filepath
                      , haskeline
                      , hslogger
