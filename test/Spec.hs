@@ -36,6 +36,7 @@ tests = testGroup "PrivateCloud tests"
         [ testCase "zipLists3" testZipLists3
         , testCase "path2entry" testPath2Entry
         , testCase "entry2path" testEntry2Path
+        , testCase "entryFile" testEntryFile
         ]
     , testGroup "DirTree tests"
         [ testCase "makeTree" testMakeTree
@@ -134,7 +135,7 @@ testMakeTree = withSystemTempDirectory "privatecloud.test" $ \tmpdir -> do
 
 testUnrollTreeFiles :: Assertion
 testUnrollTreeFiles = do
-    let files = unrollTreeFiles [dbPattern] sampleTree
+    let files = unrollTreeFiles sampleTree
     assertEqual "Incorrect files extracted"
         [ (EntryName "a/b/c/foo", LocalFileInfo { lfLength = 3, lfModTime = Timestamp 42 })
         , (EntryName "a/b/e/f/foo", LocalFileInfo { lfLength = 4, lfModTime = Timestamp 18 })
@@ -233,7 +234,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
     writeFile (root </> "a" </> "b" </> "e" </> "f" </> "foo") "barr"
 
     let getChanges' func serverFiles = do
-            localFiles <- map func . unrollTreeFiles [dbPattern] . normalizeTree <$> makeTree root
+            localFiles <- map func . unrollTreeFiles . normalizeTree <$> makeTree root
             runTestCloud root [dbPattern] (const $ return $ Just BA.empty) $ do
                 dbFiles <- getFileList
                 getAllFileChanges localFiles dbFiles serverFiles
@@ -591,3 +592,10 @@ testEntry2Path = do
     assertEqual "path with directory"
         (joinPath ["foo", "bar.dat", "buzz.txt"])
         (entry2path $ EntryName "foo/bar.dat/buzz.txt")
+
+testEntryFile :: Assertion
+testEntryFile = do
+    assertEqual "single name" "foo" (entryFile $ EntryName "foo")
+    assertEqual "path with directory"
+        "buzz.txt"
+        (entryFile $ EntryName "foo/bar.dat/buzz.txt")

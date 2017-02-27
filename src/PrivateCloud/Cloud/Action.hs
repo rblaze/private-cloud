@@ -34,8 +34,7 @@ syncChanges :: CloudProvider p => (LocalFileList -> DbFileList -> PrivateCloud p
 syncChanges getUpdates = do
     ctx <- context
     root <- rootDir
-    patterns <- exclusions
-    localFiles <- unrollTreeFiles patterns <$> liftIO (makeTree root)
+    localFiles <- unrollTreeFiles <$> liftIO (makeTree root)
     dbFiles <- getFileList
     updates <- getUpdates localFiles dbFiles
     -- XXX remove debugging

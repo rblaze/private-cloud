@@ -7,7 +7,6 @@ module PrivateCloud.Cloud.DirTree
 import Data.List
 import Data.Function
 import System.Directory.Tree
-import System.FilePath.Glob
 #ifdef WINBUILD
 import System.Directory
 import System.Win32.File
@@ -17,12 +16,10 @@ import System.Posix.Files
 
 import PrivateCloud.Provider.FileInfo
 
-unrollTreeFiles :: [Pattern] -> DirTree (Maybe LocalFileInfo) -> LocalFileList
-unrollTreeFiles exclusions tree = go (EntryName "") tree{name = ""}
+unrollTreeFiles :: DirTree (Maybe LocalFileInfo) -> LocalFileList
+unrollTreeFiles tree = go (EntryName "") tree{name = ""}
     where
-    go base File{name, file = Just f}
-        | any (`match` name) exclusions = []
-        | otherwise = [(base <//> path2entry name, f)]
+    go base File{name, file = Just f} = [(base <//> path2entry name, f)]
     go base Dir{..} = concatMap (go $ base <//> path2entry name) contents
     go _ _ = []
 

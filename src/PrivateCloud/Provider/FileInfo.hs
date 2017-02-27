@@ -34,6 +34,9 @@ entry2path (EntryName entry) = joinPath $ map T.unpack $ T.splitOn "/" entry
 (EntryName "") <//> next = next
 (EntryName base) <//> (EntryName next) = EntryName $ T.concat [base, "/", next]
 
+entryFile :: EntryName -> FilePath
+entryFile (EntryName entry) = T.unpack $ T.takeWhileEnd (/= '/') entry
+
 -- | Type for file timestamp
 newtype Timestamp = Timestamp Int64
     deriving (Eq, Ord, Buildable)

@@ -11,6 +11,7 @@ import Control.Monad.IO.Class
 import Data.Maybe
 import Data.Word
 import System.FilePath
+import System.FilePath.Glob
 import System.Log.Logger
 
 import PrivateCloud.Cloud.Crypto
@@ -110,15 +111,22 @@ zipLists3 as bs cs = (firstName, aval, bval, cval) : zipLists3 as' bs' cs'
     headMay [] = Nothing
     headMay (x:_) = Just x
 
+filterGlob :: [Pattern] -> [(EntryName, a)] -> [(EntryName, a)]
+filterGlob patterns = filter (\f -> not $ any (`match` entryFile (fst f)) patterns)
+
 getAllFileChanges :: LocalFileList -> DbFileList -> CloudFileList -> PrivateCloud p [FileAction]
 getAllFileChanges local db cloud = do
     root <- rootDir
-    getFileChanges False root local db cloud
+    patterns <- exclusions
+    let dropExclusions = filterGlob patterns
+    getFileChanges False root (dropExclusions local) (dropExclusions db) (dropExclusions cloud)
 
 getRecentFileChanges :: LocalFileList -> DbFileList -> CloudFileList -> PrivateCloud p [FileAction]
 getRecentFileChanges local db cloud = do
     root <- rootDir
-    getFileChanges True root local db cloud
+    patterns <- exclusions
+    let dropExclusions = filterGlob patterns
+    getFileChanges True root (dropExclusions local) (dropExclusions db) (dropExclusions cloud)
 
 getFileChanges :: Bool -> FilePath -> LocalFileList -> DbFileList -> CloudFileList -> PrivateCloud p [FileAction]
 getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
