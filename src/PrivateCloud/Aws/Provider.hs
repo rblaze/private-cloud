@@ -52,8 +52,8 @@ runAwsPrivateCloud = runPrivateCloud
 runAwsCloud :: MonadIO m => Tagged AwsCloud AwsContext -> CloudMonad AwsCloud a -> m a
 runAwsCloud = runCloud
 
-setupAwsPrivateCloud :: ByteArray ba => FilePath -> T.Text -> BS.ByteString -> BS.ByteString -> IO ba
-setupAwsPrivateCloud root cloudid accesskeyid secretkey = do
+setupAwsPrivateCloud :: ByteArray ba => FilePath -> T.Text -> T.Text -> BS.ByteString -> BS.ByteString -> IO (T.Text, ba)
+setupAwsPrivateCloud root cloudid userid accesskeyid secretkey = do
     env <- newEnv $ FromKeys (AccessKey accesskeyid) (SecretKey secretkey)
     legacyAuth <- makeCredentials accesskeyid secretkey
     let ctx = Tagged AwsContext
@@ -66,12 +66,14 @@ setupAwsPrivateCloud root cloudid accesskeyid secretkey = do
                 , logger = defaultLog Warning
                 }
             }
+    let uniqueId = cloudid <> "-" <> userid
 
-    initCloudSettings root cloudid
-    runAwsCloud ctx (CloudMonad $ createCloudInstance cloudid)
+    initCloudSettings root uniqueId
+    credential <- runAwsCloud ctx (CloudMonad $ createCloudInstance cloudid userid)
+    return (uniqueId, credential)
 
-connectAwsPrivateCloud :: ByteArray ba => FilePath -> T.Text -> BS.ByteString -> BS.ByteString -> IO ba
-connectAwsPrivateCloud root cloudid accesskeyid secretkey = do
+connectAwsPrivateCloud :: ByteArray ba => FilePath -> T.Text -> T.Text -> BS.ByteString -> BS.ByteString -> IO (T.Text, ba)
+connectAwsPrivateCloud root cloudid userid accesskeyid secretkey = do
     env <- newEnv $ FromKeys (AccessKey accesskeyid) (SecretKey secretkey)
     let ctx = Tagged AwsContext
             { acEnv = env
@@ -79,6 +81,8 @@ connectAwsPrivateCloud root cloudid accesskeyid secretkey = do
             , acDomain = "privatecloud-" <> cloudid
             , acLegacyConf = error "legacy api call unexpected"
             }
+    let uniqueId = cloudid <> "-" <> userid
 
-    initCloudSettings root cloudid
-    runAwsCloud ctx (CloudMonad $ connectCloudInstance cloudid)
+    initCloudSettings root uniqueId
+    credential <- runAwsCloud ctx (CloudMonad $ connectCloudInstance cloudid userid)
+    return (uniqueId, credential)

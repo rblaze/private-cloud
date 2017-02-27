@@ -58,7 +58,7 @@ getOptions = do
             , adminSecretKey = "" &= name "s" &= typ "STRING" &= help "secret key with AWS admin rights (ask)"
             }
             &= help "Create new cloud."
-            &= details ["Admin key needed to create storage bucket, database and restricted user account."]
+            &= details ["Admin key needed to create storage bucket, database and restricted group/user account."]
 
     let connect = Connect
             { root = defaultRoot &= typDir
@@ -68,7 +68,7 @@ getOptions = do
 --            , adminSecretKey = "" &= typ "STRING" &= help "secret key with AWS admin rights (ask)"
             }
             &= help "Connect to existing cloud."
-            &= details ["Admin key needed to add a new set of access credentials to the restricted user account."]
+            &= details ["Admin key needed to add new user account to the restricted group."]
 
     let progArgs = modes [run &= auto, create, connect]
             &= helpArg [name "h"]

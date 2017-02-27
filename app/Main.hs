@@ -62,8 +62,11 @@ run Create{cloudId = cloudid, ..} = do
                     return $ show (randomId :: Word32)
                 else
                     return cloudid
+    userId <- do
+        randomId <- getStdRandom random
+        return $ show (randomId :: Word32)
 
-    putStrLn $ "Creating cloud instance " ++ instanceId
+    putStrLn $ "Creating cloud instance " ++ instanceId ++ " with user " ++ userId
 
     (rootKeyId, rootSecretKey) <-
         runInputT (defaultSettings { autoAddHistory = False }) $ do
@@ -76,9 +79,9 @@ run Create{cloudId = cloudid, ..} = do
             return (encodeUtf keyid, encodeUtf secret)
 
     createDirectoryIfMissing True root
-    credentials <- setupAwsPrivateCloud root (T.pack instanceId) rootKeyId rootSecretKey
+    (uniqueId, credentials) <- setupAwsPrivateCloud root (T.pack instanceId) (T.pack userId) rootKeyId rootSecretKey
     withCredentialStore $ \store ->
-        let credName = "privatecloud-" ++ instanceId
+        let credName = "privatecloud-" ++ T.unpack uniqueId
          in putCredential store credName (credentials :: ScrubbedBytes)
 
 run Connect{cloudId = cloudid, ..} = do
@@ -101,10 +104,16 @@ run Connect{cloudId = cloudid, ..} = do
                 else return adminSecretKey
             return (instanceid, encodeUtf keyid, encodeUtf secret)
 
+    userId <- do
+        randomId <- getStdRandom random
+        return $ show (randomId :: Word32)
+
+    putStrLn $ "Connecting to cloud instance " ++ instanceId ++ " as user " ++ userId
+
     createDirectoryIfMissing True root
-    credentials <- connectAwsPrivateCloud root (T.pack instanceId) rootKeyId rootSecretKey
+    (uniqueId, credentials) <- connectAwsPrivateCloud root (T.pack instanceId) (T.pack userId) rootKeyId rootSecretKey
     withCredentialStore $ \store ->
-        let credName = "privatecloud-" ++ instanceId
+        let credName = "privatecloud-" ++ T.unpack uniqueId
          in putCredential store credName (credentials :: ScrubbedBytes)
 
 run Run{..} = do
@@ -126,8 +135,8 @@ run Run{..} = do
                 infoM mainLoggerName $ "#EXCLUSION #pattern " ++ show pat
                 return pattern
 
-    let getCred cloudid =
-            let credName = "privatecloud-" ++ T.unpack cloudid
+    let getCred uniqueId =
+            let credName = "privatecloud-" ++ T.unpack uniqueId
              in withCredentialStore $ \store ->
                 getCredential store credName :: IO (Maybe ScrubbedBytes)
 

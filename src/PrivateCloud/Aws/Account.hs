@@ -28,29 +28,13 @@ import Aws.Aws
 import Aws.Core
 import Aws.SimpleDb as AwsSDB
 
-createCloudInstance :: ByteArray ba => T.Text -> AwsMonad ba
-createCloudInstance cloudid = do
-    let userName = "privatecloud-user-" <> cloudid
+createCloudInstance :: ByteArray ba => T.Text -> T.Text -> AwsMonad ba
+createCloudInstance cloudid userid = do
+    let groupName = "privatecloud-group-" <> cloudid
+    let userName = "privatecloud-user-" <> cloudid <> "-" <> userid
     let policyName = "PrivateCloud-Access-" <> cloudid
     bucketName <- awsAsks acBucket
     domainName <- awsAsks acDomain
-
-    -- create user
-    userresp <- send $ IAM.createUser userName
-    userarn <- case userresp ^. cursUser of
-        Just info -> return $ info ^. uARN
-        Nothing -> throw $ CloudInternalError "Invalid CreateUser response"
-    accountid <- case T.split (== ':') userarn of
-        [_ , _, _, _, accountid, _] -> return accountid
-        _ -> throw $ CloudInternalError "Invalid user ARN"
-
-    let BucketName bucketstr = bucketName
-    let userPolicy = T.replace "BUCKET" bucketstr $
-            T.replace "ACCOUNTID" accountid $
-            T.replace "DOMAIN" domainName policyTemplate
-
-    -- set user policy
-    void $ send $ IAM.putUserPolicy userName policyName userPolicy
 
     -- create storage bucket
     void $ send $ S3.createBucket bucketName
@@ -73,6 +57,28 @@ createCloudInstance cloudid = do
     -- XXX create domain via aws call
     awsconfig <- awsAsks acLegacyConf
     void $ simpleAws awsconfig defServiceConfig $ AwsSDB.createDomain domainName
+
+    -- create group
+    groupResp <- send $ IAM.createGroup groupName
+
+    let groupArn = groupResp ^. cgrsGroup ^. gARN
+    accountid <- case T.split (== ':') groupArn of
+        [_ , _, _, _, accountid, _] -> return accountid
+        _ -> throw $ CloudInternalError "Invalid group ARN"
+
+    -- set group policy
+    let BucketName bucketstr = bucketName
+    let policyText = T.replace "BUCKET" bucketstr $
+            T.replace "ACCOUNTID" accountid $
+            T.replace "DOMAIN" domainName policyTemplate
+
+    void $ send $ IAM.putGroupPolicy groupName policyName policyText
+
+    -- create user
+    void $ send $ IAM.createUser userName
+
+    -- add user to group
+    void $ send $ IAM.addUserToGroup groupName userName
 
     -- create user access key
     createCredentials userName bucketName domainName
@@ -138,11 +144,18 @@ newContext (Tagged creds) = do
             }
         }
 
-connectCloudInstance :: ByteArray ba => T.Text -> AwsMonad ba
-connectCloudInstance cloudid = do
-    let userName = "privatecloud-user-" <> cloudid
+connectCloudInstance :: ByteArray ba => T.Text -> T.Text -> AwsMonad ba
+connectCloudInstance cloudid userid = do
+    let groupName = "privatecloud-group-" <> cloudid
+    let userName = "privatecloud-user-" <> cloudid <> "-" <> userid
     bucketName <- awsAsks acBucket
     domainName <- awsAsks acDomain
+
+    -- create user
+    void $ send $ IAM.createUser userName
+    -- add user to group
+    void $ send $ IAM.addUserToGroup groupName userName
+    -- create user access key
     createCredentials userName bucketName domainName
 
 createCredentials :: ByteArray ba => T.Text -> BucketName -> T.Text -> AwsMonad ba
