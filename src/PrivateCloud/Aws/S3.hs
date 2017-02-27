@@ -1,4 +1,4 @@
-{-# Language LambdaCase, RecordWildCards, FlexibleContexts #-}
+{-# Language LambdaCase, FlexibleContexts #-}
 module PrivateCloud.Aws.S3 where
 
 import Conduit

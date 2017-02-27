@@ -74,14 +74,8 @@ createCloudInstance cloudid userid = do
 
     void $ send $ IAM.putGroupPolicy groupName policyName policyText
 
-    -- create user
-    void $ send $ IAM.createUser userName
-
-    -- add user to group
-    void $ send $ IAM.addUserToGroup groupName userName
-
-    -- create user access key
-    createCredentials userName bucketName domainName
+    -- create user and return its access key
+    createCredentials groupName userName bucketName domainName
 
 policyTemplate :: T.Text
 policyTemplate = "{                                                 \
@@ -151,16 +145,16 @@ connectCloudInstance cloudid userid = do
     bucketName <- awsAsks acBucket
     domainName <- awsAsks acDomain
 
+    -- create user and return its access key
+    createCredentials groupName userName bucketName domainName
+
+createCredentials :: ByteArray ba => T.Text -> T.Text -> BucketName -> T.Text -> AwsMonad ba
+createCredentials groupName userName (BucketName bucketName) domainName = do
     -- create user
     void $ send $ IAM.createUser userName
     -- add user to group
     void $ send $ IAM.addUserToGroup groupName userName
-    -- create user access key
-    createCredentials userName bucketName domainName
-
-createCredentials :: ByteArray ba => T.Text -> BucketName -> T.Text -> AwsMonad ba
-createCredentials userName (BucketName bucketName) domainName = do
-    -- create additional access key
+    -- create access key
     keyresp <- send $ IAM.createAccessKey & cakUserName ?~ userName
 
     let info = keyresp ^. cakrsAccessKey

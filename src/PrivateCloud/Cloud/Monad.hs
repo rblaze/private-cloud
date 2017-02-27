@@ -1,8 +1,7 @@
-{-# Language OverloadedStrings, RecordWildCards, GeneralizedNewtypeDeriving, StandaloneDeriving, TypeFamilies, ScopedTypeVariables, LambdaCase #-}
+{-# Language OverloadedStrings, GeneralizedNewtypeDeriving, TypeFamilies, ScopedTypeVariables, LambdaCase #-}
 module PrivateCloud.Cloud.Monad
     ( PrivateCloud
     , cloudId
-    , cloudIdSetting
     , connection
     , context
     , dbName
@@ -28,8 +27,8 @@ import PrivateCloud.Provider.Class
 dbName :: FilePath
 dbName = ".privatecloud"
 
-cloudIdSetting :: String
-cloudIdSetting = "cloudid"
+uniqueIdSetting :: String
+uniqueIdSetting = "uniqueid"
 
 data CloudContext p = CloudContext
     { ccConnection :: Connection
@@ -45,7 +44,7 @@ newtype PrivateCloud p a = PrivateCloud (ReaderT (CloudContext p) IO a)
 runPrivateCloud :: forall ba p a. (ByteArray ba, CloudProvider p) => FilePath -> [Pattern] -> (T.Text -> IO (Maybe ba)) -> PrivateCloud p a -> IO a
 runPrivateCloud root excls getCreds (PrivateCloud f) =
     withConnection (root </> dbName) $ \conn -> do
-        cloudid <- readSetting conn cloudIdSetting >>= \case
+        cloudid <- readSetting conn uniqueIdSetting >>= \case
             Nothing -> throw $ ConfigurationError "No saved cloudid found"
             Just v -> return v
         creds <- getCreds cloudid >>= \case
@@ -61,12 +60,12 @@ runPrivateCloud root excls getCreds (PrivateCloud f) =
             }
 
 initCloudSettings :: FilePath -> T.Text -> IO ()
-initCloudSettings root cloudid = do
+initCloudSettings root uniqueId =
     withConnection (root </> dbName) $ \conn ->
         withTransaction conn $ do
             execute_ conn "CREATE TABLE localFiles (file TEXT PRIMARY KEY NOT NULL, lastSyncedHash TEXT, lastSyncedSize INT, lastSyncedModTime INT)"
             execute_ conn "CREATE TABLE settings (name TEXT PRIMARY KEY NOT NULL, value TEXT)"
-            execute conn "INSERT INTO settings (name, value) VALUES (?,?)" (cloudIdSetting, cloudid)
+            execute conn "INSERT INTO settings (name, value) VALUES (?,?)" (uniqueIdSetting, uniqueId)
 
 readSetting :: Connection -> String -> IO (Maybe T.Text)
 readSetting conn name = do
