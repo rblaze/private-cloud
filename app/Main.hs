@@ -23,13 +23,14 @@ import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Aws.Provider
 import PrivateCloud.Cloud.Action
+import PrivateCloud.Cloud.EventLog
 import PrivateCloud.Cloud.Monad as Cloud
 import PrivateCloud.Provider.Class
 
 import Options
 
-mainLoggerName :: String
-mainLoggerName = "PrivateCloud"
+appLoggerName :: String
+appLoggerName = "PrivateCloud.App"
 
 main :: IO ()
 main = do
@@ -121,18 +122,20 @@ run Run{..} = do
     let cleanupDelay = fromIntegral (cleanupInterval * 60)
     let lockName = ".privatecloud.lock"
 
-    updateGlobalLogger mainLoggerName (setLevel loglevel)
-
-    noticeM mainLoggerName $ "#START #root " ++ root
+    -- GUI can register custom handler for eventLoggerName and display notifications
+    -- Here we just write everything to stderr
+    updateGlobalLogger eventLoggerName (setLevel NOTICE)
+    -- Also print debugging loggers at level requested
+    updateGlobalLogger "PrivateCloud" (setLevel loglevel)
 
     patterns <- forM (lockName : dbName : exclPatterns) $ \pat -> do
         case simplify <$> tryCompileWith compPosix pat of
             Left errmsg -> do
-                errorM mainLoggerName $ "#EXCLUSION_ERROR #pattern " ++ show pat
+                logEventError $ "INVALID_PATTERN #pattern " ++ show pat
                     ++ " #msg " ++ errmsg
                 exitFailure
             Right pattern -> do
-                infoM mainLoggerName $ "#EXCLUSION #pattern " ++ show pat
+                infoM appLoggerName $ "#EXCLUSION #pattern " ++ show pat
                 return pattern
 
     let getCred uniqueId =
@@ -148,13 +151,13 @@ run Run{..} = do
 
     bracket lockOrDie unlockFile $ const $ runAwsPrivateCloud root patterns getCred $ do
         instanceId <- Cloud.cloudId
-        liftIO $ noticeM mainLoggerName $ "#RUN #instance " ++ T.unpack instanceId
+        logEventNotice $ "START #root " ++ root ++ " #instance " ++ T.unpack instanceId
 
         syncAllChanges
         startTime <- liftIO getCurrentTime
 
         let loop lastFullSyncTime lastCleanupTime = handleAny
-                (\e -> liftIO $ errorM mainLoggerName $ "#EXCEPTION #msg " ++ show e) $
+                (\e -> logEventError $ "#EXCEPTION #msg " ++ show e) $
               do
                 liftIO $ threadDelay (60000000 * fromIntegral syncInterval)
                 currentTime <- liftIO getCurrentTime
@@ -165,7 +168,7 @@ run Run{..} = do
                         syncAllChanges
                         return currentTime
                     else do
-                        liftIO $ noticeM mainLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
+                        liftIO $ noticeM appLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
                         syncRecentChanges
                         return lastFullSyncTime
 
@@ -176,7 +179,7 @@ run Run{..} = do
                         runCloud ctx cleanupCloud
                         return currentTime
                     else do
-                        liftIO $ noticeM mainLoggerName $ "#TIMER #tillNextCleanup " ++ show (cleanupDelay - sinceLastCleanup)
+                        liftIO $ noticeM appLoggerName $ "#TIMER #tillNextCleanup " ++ show (cleanupDelay - sinceLastCleanup)
                         return lastCleanupTime
                 loop lfst lct
 

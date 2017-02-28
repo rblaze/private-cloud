@@ -26,6 +26,7 @@ library
                        PrivateCloud.Cloud.Crypto
                        PrivateCloud.Cloud.DirTree
                        PrivateCloud.Cloud.Exception
+                       PrivateCloud.Cloud.EventLog
                        PrivateCloud.Cloud.LocalDb
                        PrivateCloud.Cloud.Monad
                        PrivateCloud.Cloud.Sync
