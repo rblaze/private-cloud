@@ -36,7 +36,7 @@ instance CloudProvider AwsCloud where
     runCloud (Tagged ctx) (CloudMonad (AwsMonad func)) = liftIO $ runResourceT $ runAWS (acEnv ctx) $ runReaderT func ctx
 
     uploadFile e f = CloudMonad $ S3.uploadFile e f
-    downloadFile e v f = CloudMonad $ S3.downloadFile e v f
+    downloadFile e v h f = CloudMonad $ S3.downloadFile e v h f
 
     uploadFileInfo e i = CloudMonad $ SDB.uploadFileInfo e i
     uploadFileMetadata e i = CloudMonad $ SDB.uploadFileMetadata e i

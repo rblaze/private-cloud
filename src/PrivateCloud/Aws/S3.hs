@@ -4,12 +4,16 @@ module PrivateCloud.Aws.S3 where
 import Conduit
 import Control.Exception.Safe
 import Control.Lens
+import Control.Monad
 import Control.Monad.Trans.Resource
 import Crypto.MAC.HMAC.Conduit
 import Data.List.NonEmpty (nonEmpty)
 import Network.AWS hiding (await)
 import Network.AWS.Data.Body
 import Network.AWS.S3
+import System.FilePath
+import System.Directory
+import System.IO
 import System.Log.Logger
 
 import qualified Data.ByteString as BS
@@ -81,24 +85,28 @@ uploadFile (EntryName filename) localPath = do
                     loop (n+1)
                 Nothing -> return ()
 
-{-
-deleteFile :: EntryName -> AwsMonad ()
-deleteFile (EntryName filename) = do
-    s3LogNotice $ "#S3DELETE #file " ++ show filename
-    bucketName <- awsAsks acBucket
-    void $ send $ deleteObject bucketName (ObjectKey filename)
--}
-
-downloadFile :: EntryName -> VersionId -> FilePath -> AwsMonad ()
-downloadFile (EntryName filename) (VersionId version) localPath = do
+downloadFile :: EntryName -> VersionId -> Hash -> FilePath -> AwsMonad ()
+downloadFile (EntryName filename) (VersionId version) expectedHash localPath = do
     s3LogNotice $ "#S3DOWNLOAD #file " ++ show filename
     bucketName <- awsAsks acBucket
     resp <- send $ getObject bucketName (ObjectKey filename)
-                    & goVersionId ?~ ObjectVersionId version
-    -- XXX replace with write to temp file, then move to original.
-    -- this will prevent partial downloads and memory overuse.
-    let RsBody stream = resp ^. gorsBody
-    liftResourceT (stream $$+- sinkFile localPath)
+                & goVersionId ?~ ObjectVersionId version
+    liftResourceT $ resourceMask $ \unmask -> do
+        let dir = takeDirectory localPath
+        let file = takeFileName localPath
+        (name, h) <- liftIO $ openBinaryTempFile dir file
+        handleReleaseKey <- register $ hClose h
+        fileReleaseKey <- register $ removeFile name
+        unmask $ do
+            let RsBody stream = resp ^. gorsBody
+            let sink = getZipSink (ZipSink (sinkHandle h) *> ZipSink (sinkHMAC hmacKey))
+            hmac <- stream $$+- sink
+            let hash = hmac2hash hmac
+            when (hash /= expectedHash) $
+                throw $ ServiceInternalError "hmac mismatch in downloaded file"
+            release handleReleaseKey
+        liftIO $ renameFile name localPath
+        void $ unprotect fileReleaseKey -- no longer needed to delete file
     s3LogInfo $ "#S3DOWNLOADED #file " ++ show filename
 
 chunkedConduit :: MonadResource m => Integer -> Conduit BS.ByteString m BL.ByteString

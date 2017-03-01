@@ -12,3 +12,7 @@ data CloudInternalError = CloudInternalError String
 
 instance Exception CloudInternalError
 
+data ServiceInternalError = ServiceInternalError String
+    deriving Show
+
+instance Exception ServiceInternalError

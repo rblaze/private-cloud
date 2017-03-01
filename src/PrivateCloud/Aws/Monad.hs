@@ -21,7 +21,7 @@ data AwsContext = AwsContext
 
 -- technically, Env is not needed inside monad, but I'm too lazy to write another type
 newtype AwsMonad a = AwsMonad (ReaderT AwsContext AWS a)
-    deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadThrow, MonadAWS, MonadBase IO, MonadResource)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadMask, MonadThrow, MonadAWS, MonadBase IO, MonadResource)
 
 awsAsks :: (AwsContext -> a) -> AwsMonad a
 awsAsks = AwsMonad . asks

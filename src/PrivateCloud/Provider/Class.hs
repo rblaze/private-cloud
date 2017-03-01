@@ -38,9 +38,7 @@ class CloudProvider p where
     -- length and hash of bytes uploaded.
     uploadFile :: EntryName -> FilePath -> CloudMonad p (VersionId, Length, Hash)
     -- | Download file from cloud storage.
-    downloadFile :: EntryName -> VersionId -> FilePath -> CloudMonad p ()
-    -- | Delete file in cloud storage.
-    -- deleteFile :: EntryName -> CloudMonad p ()
+    downloadFile :: EntryName -> VersionId -> Hash -> FilePath -> CloudMonad p ()
 
     -- | Clean obsolete entries from cloud database and storage.
     cleanupCloud :: CloudMonad p ()

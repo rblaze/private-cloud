@@ -84,7 +84,7 @@ syncChanges getUpdates = do
             logEventNotice $ "DOWNLOAD_FILE_START #file " ++ show faFilename
             let path = root </> entry2path faFilename
             liftIO $ createDirectoryIfMissing True (dropFileName path)
-            runCloud ctx $ downloadFile faFilename (cfVersion faCloudInfo) path
+            runCloud ctx $ downloadFile faFilename (cfVersion faCloudInfo) (cfHash faCloudInfo) path
             logEventNotice $ "DOWNLOAD_DATA_COMPLETED #file " ++ show faFilename
             liftIO $ setModificationTime path (ts2utc $ cfModTime faCloudInfo)
             putFileInfo faFilename
