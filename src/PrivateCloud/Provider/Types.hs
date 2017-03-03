@@ -1,5 +1,5 @@
 {-# Language OverloadedStrings, GeneralizedNewtypeDeriving #-}
-module PrivateCloud.Provider.FileInfo where
+module PrivateCloud.Provider.Types where
 
 import Crypto.Hash
 import Crypto.MAC.HMAC
@@ -19,10 +19,7 @@ import qualified Data.Text.Encoding as T
 -- | Type for filenames used in database.
 -- Path separator is always /, no matter what host os we are on.
 newtype EntryName = EntryName T.Text
-    deriving (Eq, Ord, Hashable)
-
-instance Show EntryName where
-    show (EntryName e) = show e
+    deriving (Eq, Ord, Show, Hashable)
 
 path2entry :: FilePath -> EntryName
 path2entry = EntryName . T.intercalate "/" . map T.pack . splitDirectories
@@ -36,6 +33,9 @@ entry2path (EntryName entry) = joinPath $ map T.unpack $ T.splitOn "/" entry
 
 entryFile :: EntryName -> FilePath
 entryFile (EntryName entry) = T.unpack $ T.takeWhileEnd (/= '/') entry
+
+printEntry :: EntryName -> String
+printEntry (EntryName entry) = T.unpack entry
 
 -- | Type for file timestamp
 newtype Timestamp = Timestamp Int64

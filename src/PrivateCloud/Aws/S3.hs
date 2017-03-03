@@ -21,7 +21,7 @@ import qualified Data.ByteString.Lazy as BL
 
 import PrivateCloud.Aws.Monad
 import PrivateCloud.Cloud.Exception
-import PrivateCloud.Provider.FileInfo
+import PrivateCloud.Provider.Types
 
 s3LoggerName :: String
 s3LoggerName = "PrivateCloud.AWS.S3"

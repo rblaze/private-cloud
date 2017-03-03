@@ -20,7 +20,7 @@ import qualified Data.Text as T
 import PrivateCloud.Aws.Logging
 import PrivateCloud.Aws.Monad
 import PrivateCloud.Aws.SimpleDb
-import PrivateCloud.Provider.FileInfo
+import PrivateCloud.Provider.Types
 
 import Aws.Aws
 import Aws.Core

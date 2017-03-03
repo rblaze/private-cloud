@@ -23,7 +23,7 @@ import PrivateCloud.Cloud.DirTree
 import PrivateCloud.Cloud.LocalDb
 import PrivateCloud.Cloud.Monad
 import PrivateCloud.Cloud.Sync
-import PrivateCloud.Provider.FileInfo
+import PrivateCloud.Provider.Types
 
 import Provider
 

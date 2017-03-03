@@ -9,7 +9,7 @@ import Control.Monad.IO.Class
 import Database.SQLite.Simple
 
 import PrivateCloud.Cloud.Monad
-import PrivateCloud.Provider.FileInfo
+import PrivateCloud.Provider.Types
 
 withDbConnection :: (Connection -> IO a) -> PrivateCloud p a
 withDbConnection f = do

@@ -31,7 +31,7 @@ library
                        PrivateCloud.Cloud.Monad
                        PrivateCloud.Cloud.Sync
                        PrivateCloud.Provider.Class
-                       PrivateCloud.Provider.FileInfo
+                       PrivateCloud.Provider.Types
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5
                      , Glob

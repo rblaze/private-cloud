@@ -4,7 +4,7 @@ import Crypto.MAC.HMAC
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 
-import PrivateCloud.Provider.FileInfo
+import PrivateCloud.Provider.Types
 
 hmacKey :: BS.ByteString
 hmacKey = BS.pack [102,111,111,98,97,114]

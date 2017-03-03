@@ -16,7 +16,7 @@ import System.Log.Logger
 
 import PrivateCloud.Cloud.Crypto
 import PrivateCloud.Cloud.Monad
-import PrivateCloud.Provider.FileInfo
+import PrivateCloud.Provider.Types
 
 syncLoggerName :: String
 syncLoggerName = "PrivateCloud.Sync"
@@ -53,41 +53,41 @@ data FileAction
 
 logConflict :: MonadIO m => EntryName -> Word64 -> Word64 -> m ()
 logConflict file localSize cloudSize =
-    liftIO $ noticeM syncLoggerName $ "#CONFLICT #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#CONFLICT #file " ++ printEntry file
         ++ " #localsize " ++ show localSize ++ " #serversize " ++ show cloudSize
 
 logLocalNew :: MonadIO m => EntryName -> Word64 -> m ()
 logLocalNew file size =
-    liftIO $ noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ show file ++ " #size " ++ show size
+    liftIO $ noticeM syncLoggerName $ "#NEW_LOCAL #file " ++ printEntry file ++ " #size " ++ show size
 
 logLocalDelete :: MonadIO m => EntryName -> m ()
-logLocalDelete file = liftIO $ noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ show file
+logLocalDelete file = liftIO $ noticeM syncLoggerName $ "#DEL_LOCAL #file " ++ printEntry file
 
 logLocalChange :: MonadIO m => EntryName -> Word64 -> Word64 -> m ()
 logLocalChange file oldSize newSize =
-    liftIO $ noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ show file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
+    liftIO $ noticeM syncLoggerName $ "#UPD_LOCAL #file " ++ printEntry file ++ " #size " ++ show newSize ++ " #oldsize " ++  show oldSize
 
 logLocalMetadataChange :: MonadIO m => EntryName -> Timestamp -> Timestamp -> m ()
 logLocalMetadataChange file oldTs newTs =
-    liftIO $ noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#UPDMETA_LOCAL #file " ++ printEntry file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
 logServerNew :: MonadIO m => EntryName -> Word64 -> m ()
 logServerNew file size =
-    liftIO $ noticeM syncLoggerName $ "#NEW_SERVER #file " ++ show file ++ " #size " ++ show size
+    liftIO $ noticeM syncLoggerName $ "#NEW_SERVER #file " ++ printEntry file ++ " #size " ++ show size
 
 logServerDelete :: MonadIO m => EntryName -> m ()
-logServerDelete file = liftIO $ noticeM syncLoggerName $ "#DEL_SERVER #file " ++ show file
+logServerDelete file = liftIO $ noticeM syncLoggerName $ "#DEL_SERVER #file " ++ printEntry file
 
 logServerChange :: MonadIO m => EntryName -> DbFileInfo -> CloudFileInfo -> m ()
 logServerChange file oldInfo newInfo =
-    liftIO $ noticeM syncLoggerName $ "#UPD_SERVER #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#UPD_SERVER #file " ++ printEntry file
         ++ " #size " ++ show (cfLength newInfo)
         ++ " #oldsize " ++  show (dfLength oldInfo)
 
 logServerMetadataChange :: MonadIO m => EntryName -> Timestamp -> Timestamp -> m ()
 logServerMetadataChange file oldTs newTs =
-    liftIO $ noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ show file
+    liftIO $ noticeM syncLoggerName $ "#UPDMETA_SERVER #file " ++ printEntry file
         ++ " #ts " ++ show newTs ++ " #oldts " ++  show oldTs
 
 zipLists3 :: Ord f => [(f, a)] -> [(f, b)] -> [(f, c)] -> [(f, Maybe a, Maybe b, Maybe c)]
@@ -194,7 +194,7 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                 else do
                     -- local deleted, but cloud has newer version
                     -- download it
-                    liftIO $ noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ show filename ++ " #size " ++ show cfLength
+                    liftIO $ noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ printEntry filename ++ " #size " ++ show cfLength
                     return $ Just $ UpdateLocalFile filename cloudinfo
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) | onlyRecentServerFiles -> do
             -- file deleted on server or we have no server status
@@ -273,7 +273,7 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
         | newLength /= oldLength = return True
         | otherwise = isLocalFileContentChanged filename oldHash
     isLocalFileContentChanged filename oldHash = do
-        liftIO $ infoM syncLoggerName $ "#CHECK_HASH #file " ++ show filename
+        liftIO $ infoM syncLoggerName $ "#CHECK_HASH #file " ++ printEntry filename
         localHash <- liftIO $ getFileHash (root </> entry2path filename)
         return $ localHash /= oldHash
     syncModTimes filename hash localinfo cloudinfo = do

@@ -14,7 +14,7 @@ import System.Win32.File
 import System.Posix.Files
 #endif
 
-import PrivateCloud.Provider.FileInfo
+import PrivateCloud.Provider.Types
 
 unrollTreeFiles :: DirTree (Maybe LocalFileInfo) -> LocalFileList
 unrollTreeFiles tree = go (EntryName "") tree{name = ""}
