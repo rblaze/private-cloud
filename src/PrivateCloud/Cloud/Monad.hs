@@ -2,6 +2,7 @@
 module PrivateCloud.Cloud.Monad
     ( PrivateCloud
     , cloudId
+    , conflictSuffix
     , connection
     , context
     , dbName
@@ -26,6 +27,9 @@ import PrivateCloud.Provider.Class
 
 dbName :: FilePath
 dbName = ".privatecloud"
+
+conflictSuffix :: FilePath
+conflictSuffix = ".conflict"
 
 uniqueIdSetting :: String
 uniqueIdSetting = "uniqueid"

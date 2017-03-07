@@ -128,7 +128,8 @@ run Run{..} = do
     -- Also print debugging loggers at level requested
     updateGlobalLogger "PrivateCloud" (setLevel loglevel)
 
-    patterns <- forM (lockName : dbName : exclPatterns) $ \pat -> do
+    let conflictPattern = "*" ++  conflictSuffix
+    patterns <- forM (conflictPattern : lockName : dbName : exclPatterns) $ \pat -> do
         case simplify <$> tryCompileWith compPosix pat of
             Left errmsg -> do
                 logEventError $ "INVALID_PATTERN #pattern " ++ show pat

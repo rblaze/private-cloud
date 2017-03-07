@@ -42,7 +42,17 @@ syncChanges getUpdates = do
     forM_ updates $ \case
         ResolveConflict{..} -> do
             logEventNotice $ "CONFLICT #file " ++ printEntry faFilename
-            error "Aaaaaaa!!!!!!"
+            -- move local file to .n.conflict for the first non-existing n
+            let localPath = root </> entry2path faFilename
+            let loop n = do
+                    let path = localPath ++ "." ++ show n ++ conflictSuffix
+                    exists <- doesFileExist path
+                    if exists then loop (n + 1) else return path
+            newname <- liftIO $ loop (0 :: Int)
+            liftIO $ renameFile localPath newname
+            -- fetch remote file and mark it as synced
+            -- new version will be uploaded after conflict resolution by user
+            downloadCloudFile faFilename localPath faCloudInfo
         UpdateCloudFile{..} -> do
             logEventNotice $ "UPLOAD_FILE_START #file " ++ printEntry faFilename
             let path = root </> entry2path faFilename
@@ -84,16 +94,7 @@ syncChanges getUpdates = do
             logEventNotice $ "DOWNLOAD_FILE_START #file " ++ printEntry faFilename
             let path = root </> entry2path faFilename
             liftIO $ createDirectoryIfMissing True (dropFileName path)
-            runCloud ctx $ downloadFile faFilename (cfVersion faCloudInfo) (cfHash faCloudInfo) path
-            logEventNotice $ "DOWNLOAD_DATA_COMPLETED #file " ++ printEntry faFilename
-            liftIO $ setModificationTime path (ts2utc $ cfModTime faCloudInfo)
-            putFileInfo faFilename
-                DbFileInfo
-                    { dfHash = cfHash faCloudInfo
-                    , dfLength = cfLength faCloudInfo
-                    , dfModTime = cfModTime faCloudInfo
-                    }
-            logEventNotice $ "DOWNLOAD_FILE_END #file " ++ printEntry faFilename
+            downloadCloudFile faFilename path faCloudInfo
         UpdateLocalMetadata{..} -> do
             logEventNotice $ "DOWNLOAD_META_START #file " ++ printEntry faFilename
             liftIO $ setModificationTime (root </> entry2path faFilename)
@@ -111,3 +112,17 @@ syncChanges getUpdates = do
             logEventNotice $ "DELETE_LOCAL_FILE_COMPLETED #file " ++ printEntry faFilename
             deleteFileInfo faFilename
             logEventNotice $ "DELETE_LOCAL_END #file " ++ printEntry faFilename
+
+downloadCloudFile :: CloudProvider p => EntryName -> FilePath -> CloudFileInfo -> PrivateCloud p ()
+downloadCloudFile name localPath cloudInfo = do
+    ctx <- context
+    runCloud ctx $ downloadFile name (cfVersion cloudInfo) (cfHash cloudInfo) localPath
+    logEventNotice $ "DOWNLOAD_DATA_COMPLETED #file " ++ printEntry name
+    liftIO $ setModificationTime localPath (ts2utc $ cfModTime cloudInfo)
+    putFileInfo name
+        DbFileInfo
+            { dfHash = cfHash cloudInfo
+            , dfLength = cfLength cloudInfo
+            , dfModTime = cfModTime cloudInfo
+            }
+    logEventNotice $ "DOWNLOAD_FILE_END #file " ++ printEntry name
