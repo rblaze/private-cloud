@@ -43,7 +43,7 @@ getOptions = do
             { loglevel = ERROR &= typ "LEVEL" &= help "log level (ERROR)"
             , root = defaultRoot &= typDir
                 &= help ("working directory (" ++ defaultRoot ++ ")")
-            , syncInterval = 1 &= typ "MIN" &= help "sync interval (1m)"
+            , syncInterval = 60 &= typ "SEC" &= help "sync interval (60s)"
             , fullSyncInterval = 30 &= typ "MIN" &= help "full sync interval (30m)"
             , cleanupInterval = 720 &= typ "MIN" &= help "database cleanup interval (12h)"
             , exclPatterns = [".*"] &= typ "PATTERN" &= help "file masks to ignore (.*)"

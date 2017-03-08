@@ -7,6 +7,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Data.ByteArray (ScrubbedBytes)
 import Data.Time.Clock
+import Data.Time.Clock.POSIX
 import Data.Word
 import System.Console.Haskeline hiding (bracket)
 import System.CredentialStore
@@ -154,13 +155,19 @@ run Run{..} = do
         instanceId <- Cloud.cloudId
         logEventNotice $ "START #root " ++ root ++ " #instance " ++ T.unpack instanceId
 
-        syncAllChanges
-        startTime <- liftIO getCurrentTime
+        let loop lastFullSyncTime lastCleanupTime = do
+                (lfst, lct) <- catchAny (step lastFullSyncTime lastCleanupTime) $
+                    \e -> do
+                        logEventError $ "#EXCEPTION #msg " ++ show e
+                        -- Keep full sync time, but delay database cleanup.
+                        -- This way after cloud outage all clients will not
+                        -- try to do database cleanup at once.
+                        currentTime <- liftIO getCurrentTime
+                        return (lastFullSyncTime, currentTime)
+                liftIO $ threadDelay (1000000 * fromIntegral syncInterval)
+                loop lfst lct
 
-        let loop lastFullSyncTime lastCleanupTime = handleAny
-                (\e -> logEventError $ "#EXCEPTION #msg " ++ show e) $
-              do
-                liftIO $ threadDelay (60000000 * fromIntegral syncInterval)
+            step lastFullSyncTime lastCleanupTime = do
                 currentTime <- liftIO getCurrentTime
 
                 let sinceLastFullSync = diffUTCTime currentTime lastFullSyncTime
@@ -182,6 +189,9 @@ run Run{..} = do
                     else do
                         liftIO $ noticeM appLoggerName $ "#TIMER #tillNextCleanup " ++ show (cleanupDelay - sinceLastCleanup)
                         return lastCleanupTime
-                loop lfst lct
 
-        loop startTime startTime
+                return (lfst, lct)
+
+        -- Force first sync to be full, but delay cleanup.
+        startTime <- liftIO getCurrentTime
+        loop (posixSecondsToUTCTime 0) startTime
