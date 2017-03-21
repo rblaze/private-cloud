@@ -297,7 +297,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "100"
+            , cfStorageId = StorageId "100"
             }
           )
         , ( EntryName "a/b/e/f/foo"
@@ -305,7 +305,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "101"
+            , cfStorageId = StorageId "101"
             }
           )
         ]
@@ -318,7 +318,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "zZx4F64Y6MG1YGUuxKDusPLIlVmILO6qaQZymdsmWmk="
             , cfLength = 3
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "100"
+            , cfStorageId = StorageId "100"
             }
           )
         , ( EntryName "a/b/e/f/foo"
@@ -326,7 +326,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "101"
+            , cfStorageId = StorageId "101"
             }
           )
         ]
@@ -350,7 +350,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "105"
+            , cfStorageId = StorageId "105"
             }
           )
         , ( EntryName "a/b/e/f/foo"
@@ -358,7 +358,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "101"
+            , cfStorageId = StorageId "101"
             }
           )
         ]
@@ -380,7 +380,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 1
-            , cfVersion = VersionId "108"
+            , cfStorageId = StorageId "108"
             }
           )
         , ( EntryName "a/b/e/f/foo"
@@ -388,7 +388,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "101"
+            , cfStorageId = StorageId "101"
             }
           )
         ]
@@ -409,7 +409,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "108"
+            , cfStorageId = StorageId "108"
             }
           )
         , ( EntryName "a/b/e/f/foo"
@@ -417,7 +417,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "101"
+            , cfStorageId = StorageId "101"
             }
           )
         ]
@@ -432,7 +432,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "108"
+            , cfStorageId = StorageId "108"
             }
           )
         , ( EntryName "a/b/e/buzz"
@@ -440,7 +440,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "1"
+            , cfStorageId = StorageId "1"
             }
           )
         ]
@@ -450,7 +450,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "9wjg36DLTfAOSUT+NxKJmA0dCZW6bRW8pzZj+LGgN+s="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "1"
+            , cfStorageId = StorageId "1"
             }
           }
         ]
@@ -462,7 +462,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "108"
+            , cfStorageId = StorageId "108"
             }
           )
         , ( EntryName "a/b/e/buzz"
@@ -470,7 +470,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "2"
+            , cfStorageId = StorageId "2"
             }
           )
         ]
@@ -480,7 +480,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "2"
+            , cfStorageId = StorageId "2"
             }
           }
         ]
@@ -492,7 +492,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "108"
+            , cfStorageId = StorageId "108"
             }
           )
         , ( EntryName "a/b/e/buzz"
@@ -500,7 +500,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 50
-            , cfVersion = VersionId "2"
+            , cfStorageId = StorageId "2"
             }
           )
         ]
@@ -510,7 +510,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "B+9p2ru9/sTS5mdIPgWncWKBHpH76aY+p7/UaoXBlwM="
             , cfLength = 4
             , cfModTime = Timestamp 50
-            , cfVersion = VersionId "2"
+            , cfStorageId = StorageId "2"
             }
           }
         ]
@@ -521,7 +521,7 @@ testGetFileChanges = withSystemTempDirectory "privatecloud.test" $ \root -> do
             { cfHash = Hash "030RQSMx83MhsKJrqDbkXvlkg5KJ3hjtsSA8o3Vs0bQ="
             , cfLength = 4
             , cfModTime = Timestamp 42
-            , cfVersion = VersionId "108"
+            , cfStorageId = StorageId "108"
             }
           )
         , ( EntryName "a/b/e/buzz"

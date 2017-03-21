@@ -37,7 +37,7 @@ entryFile (EntryName entry) = T.unpack $ T.takeWhileEnd (/= '/') entry
 printEntry :: EntryName -> String
 printEntry (EntryName entry) = T.unpack entry
 
--- | Type for file timestamp
+-- | Type for file's timestamp
 newtype Timestamp = Timestamp Int64
     deriving (Eq, Ord, Buildable)
 
@@ -53,12 +53,12 @@ utc2ts = Timestamp . round . utcTimeToPOSIXSeconds
 ts2utc :: Timestamp -> UTCTime 
 ts2utc (Timestamp ts) = posixSecondsToUTCTime $ realToFrac ts
 
--- | Type for S3 version id
-newtype VersionId = VersionId { version2text :: T.Text }
-    deriving Eq
+-- | Type for storage object id
+newtype StorageId = StorageId { storage2text :: T.Text }
+    deriving (Eq, Hashable)
 
-instance Show VersionId where
-    show (VersionId v) = show v
+instance Show StorageId where
+    show (StorageId v) = show v
 
 -- | Type for file hash
 newtype Hash = Hash { hash2text :: T.Text }
@@ -69,6 +69,8 @@ instance Show Hash where
 
 hmac2hash :: HMAC SHA512t_256 -> Hash
 hmac2hash = Hash . T.decodeUtf8 . convertToBase Base64
+
+-- other types
 
 type Length = Word64
 
@@ -93,7 +95,7 @@ data CloudFileInfo = CloudFileInfo
     { cfHash :: Hash
     , cfLength :: Length
     , cfModTime :: Timestamp
-    , cfVersion :: VersionId
+    , cfStorageId :: StorageId
     }
     deriving (Eq, Show)
 

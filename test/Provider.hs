@@ -19,8 +19,8 @@ instance CloudProvider TestCloud where
 
     newContext _ = return ()
 
-    uploadFile _ _ = error "uploadFile"
-    downloadFile _ _ _ = error "downloadFile"
+    uploadFile _ = error "uploadFile"
+    downloadFile _ _ = error "downloadFile"
 
     uploadFileInfo _ _ = error "uploadFileInfo"
     uploadFileMetadata _ _ = error "uploadFileMetadata"

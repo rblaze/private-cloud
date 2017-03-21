@@ -38,8 +38,6 @@ createCloudInstance cloudid userid = do
 
     -- create storage bucket
     void $ send $ S3.createBucket bucketName
-    void $ send $ S3.putBucketVersioning bucketName $
-        versioningConfiguration & vcStatus ?~ BVSEnabled
     {- XXX: API broken in amazonka
     void $ send $
         S3.putBucketLifecycleConfiguration bucketName & pblcLifecycleConfiguration ?~

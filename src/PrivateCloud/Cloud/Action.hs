@@ -56,13 +56,13 @@ syncChanges getUpdates = do
         UpdateCloudFile{..} -> do
             logEventNotice $ "UPLOAD_FILE_START #file " ++ printEntry faFilename
             let path = root </> entry2path faFilename
-            (version, len, hash) <- runCloud ctx $ uploadFile faFilename path
+            (storageId, len, hash) <- runCloud ctx $ uploadFile path
             logEventNotice $ "UPLOAD_DATA_COMPLETED #file " ++ printEntry faFilename
             let cloudinfo = CloudFileInfo
                     { cfHash = hash
                     , cfModTime = lfModTime faLocalInfo
                     , cfLength = len
-                    , cfVersion = version
+                    , cfStorageId = storageId
                     }
             logEventNotice $ "UPLOAD_META_COMPLETED #file " ++ printEntry faFilename
             runCloud ctx $ uploadFileInfo faFilename cloudinfo
@@ -116,7 +116,7 @@ syncChanges getUpdates = do
 downloadCloudFile :: CloudProvider p => EntryName -> FilePath -> CloudFileInfo -> PrivateCloud p ()
 downloadCloudFile name localPath cloudInfo = do
     ctx <- context
-    runCloud ctx $ downloadFile name (cfVersion cloudInfo) (cfHash cloudInfo) localPath
+    runCloud ctx $ downloadFile (cfStorageId cloudInfo) (cfHash cloudInfo) localPath
     logEventNotice $ "DOWNLOAD_DATA_COMPLETED #file " ++ printEntry name
     liftIO $ setModificationTime localPath (ts2utc $ cfModTime cloudInfo)
     putFileInfo name

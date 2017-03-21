@@ -34,11 +34,11 @@ class CloudProvider p where
     -- | Get recently updated file entries.
     getRecentServerFiles :: CloudMonad p CloudFileList
 
-    -- | Upload file to cloud storage. Get back it's version id and actual
-    -- length and hash of bytes uploaded.
-    uploadFile :: EntryName -> FilePath -> CloudMonad p (VersionId, Length, Hash)
+    -- | Upload file to cloud storage. Get back it's storage id, actual length and
+    -- hash of bytes uploaded.
+    uploadFile :: FilePath -> CloudMonad p (StorageId, Length, Hash)
     -- | Download file from cloud storage.
-    downloadFile :: EntryName -> VersionId -> Hash -> FilePath -> CloudMonad p ()
+    downloadFile :: StorageId -> Hash -> FilePath -> CloudMonad p ()
 
     -- | Clean obsolete entries from cloud database and storage.
     cleanupCloud :: CloudMonad p ()

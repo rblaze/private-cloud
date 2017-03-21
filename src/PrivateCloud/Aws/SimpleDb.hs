@@ -43,7 +43,7 @@ uploadFileInfo (EntryName file) CloudFileInfo{..} = do
             [ replaceAttribute "hash" (hash2text cfHash)
             , replaceAttribute "size" (printSingle cfLength)
             , replaceAttribute "mtime" (printSingle cfModTime)
-            , replaceAttribute "version" (version2text cfVersion)
+            , replaceAttribute "storage" (storage2text cfStorageId)
             , replaceAttribute "recordmtime" timestr
             ]
             domain
@@ -59,7 +59,7 @@ uploadDeleteMarker (EntryName file) = do
             [ replaceAttribute "hash" T.empty
             , replaceAttribute "size" T.empty
             , replaceAttribute "mtime" T.empty
-            , replaceAttribute "version" T.empty
+            , replaceAttribute "storage" T.empty
             , replaceAttribute "recordmtime" timestr
             ]
             domain
@@ -141,14 +141,14 @@ getServerFiles queryText = do
             else do
                 size <- readDec =<< getAttr "size" itemData
                 mtime <- readDec =<< getAttr "mtime" itemData
-                version <- getAttr "version" itemData
+                storage <- getAttr "storage" itemData
                 return
                     ( EntryName itemName
                     , CloudFile CloudFileInfo
                         { cfLength = size
                         , cfModTime = Timestamp mtime
                         , cfHash = Hash filehash
-                        , cfVersion = VersionId version
+                        , cfStorageId = StorageId storage
                         }
                     )
 

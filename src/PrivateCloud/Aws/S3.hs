@@ -7,6 +7,8 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Trans.Resource
 import Crypto.MAC.HMAC.Conduit
+import Crypto.Random
+import Data.ByteArray.Encoding
 import Data.List.NonEmpty (nonEmpty)
 import Network.AWS hiding (await)
 import Network.AWS.Data.Body
@@ -18,6 +20,7 @@ import System.Log.Logger
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text.Encoding as T
 
 import PrivateCloud.Aws.Monad
 import PrivateCloud.Cloud.Exception
@@ -36,11 +39,18 @@ s3LogCritical :: MonadIO m => String -> m ()
 s3LogCritical = liftIO . criticalM s3LoggerName
 
 hmacKey :: BS.ByteString
-hmacKey = BS.pack [102,111,111,98,97,114]
+hmacKey = BS.pack $ map (fromIntegral . fromEnum) "No, this constant key will NOT be left in release, thank you"
 
-uploadFile :: EntryName -> FilePath -> AwsMonad (VersionId, Length, Hash)
-uploadFile (EntryName filename) localPath = do
-    s3LogNotice $ "#S3UPLOAD_START #file " ++ show filename
+createStorageId :: MonadIO m => m StorageId
+createStorageId = do
+    rnd <- liftIO getSystemDRG
+    return $ StorageId $ T.decodeUtf8 $ fst $ withRandomBytes rnd 16 $ \m ->
+        convertToBase Base64URLUnpadded (m :: BS.ByteString)
+
+uploadFile :: FilePath -> AwsMonad (StorageId, Length, Hash)
+uploadFile localPath = do
+    storageId <- createStorageId
+    s3LogNotice $ "#S3UPLOAD_START #objid " ++ show storageId
     -- S3 requires Content-Length header for uploads, and to provide 
     -- it for encrypted data it is necessary to encrypt and keep in memory
     -- all the [multigigabyte] encrypted stream. Another option is to
@@ -48,32 +58,30 @@ uploadFile (EntryName filename) localPath = do
     -- looks like hack.
     -- Also (TODO) chunked uploads allow for restarts in case of network failures.
     bucketName <- awsAsks acBucket
-    (resp, len, hmac) <- runConduit $
+    (len, hmac) <- runConduit $
         sourceFileBS localPath
-        .| getZipSink ((,,) <$> ZipSink (uploadSink bucketName)
-                <*> ZipSink lengthCE
-                <*> ZipSink (sinkHMAC hmacKey))
+        .| getZipSink (ZipSink (uploadSink bucketName storageId)
+                *> ((,) <$> ZipSink lengthCE <*> ZipSink (sinkHMAC hmacKey)))
     let hash = hmac2hash hmac
-    s3LogInfo $ "#S3UPLOAD_END #file " ++ show filename
+    s3LogInfo $ "#S3UPLOAD_END #objid " ++ show storageId
         ++ " #len " ++ show len ++ " #hash " ++  show hash
-    ObjectVersionId version <- mustHave "no version returned" $ resp ^. crsVersionId
-    return (VersionId version, len, hash)
+    return (storageId, len, hash)
   where
-    object = ObjectKey filename
     chunkSize = 6 * 1024 * 1024
-    uploadSink bucketName = do
+    uploadSink bucketName storageId = do
+        let object = ObjectKey (storage2text storageId)
         resp <- lift $ send $ createMultipartUpload bucketName object
         uploadId <- mustHave "no uploadid returned" $ resp ^. cmursUploadId
         etags <- chunkedConduit chunkSize
             =$= mapMC (\chunk -> s3LogInfo "#S3UPLOAD_CHUNK" >> return chunk)
-            =$= putConduit bucketName uploadId
+            =$= putConduit bucketName object uploadId
             =$= sinkList
         sentParts <- mustHave "empty parts list" $ nonEmpty $ zipWith completedPart [1 ..] etags
-        s3LogInfo $ "#S3UPLOAD_COMBINE #file " ++ show filename
+        s3LogInfo $ "#S3UPLOAD_COMBINE #objid " ++ show storageId
         lift $ send $ completeMultipartUpload bucketName object uploadId
             & cMultipartUpload ?~ (completedMultipartUpload & cmuParts ?~ sentParts)
                     
-    putConduit bucketName uploadId = loop 1
+    putConduit bucketName object uploadId = loop 1
       where
         loop n = do
             v' <- await
@@ -85,12 +93,11 @@ uploadFile (EntryName filename) localPath = do
                     loop (n+1)
                 Nothing -> return ()
 
-downloadFile :: EntryName -> VersionId -> Hash -> FilePath -> AwsMonad ()
-downloadFile (EntryName filename) (VersionId version) expectedHash localPath = do
-    s3LogNotice $ "#S3DOWNLOAD #file " ++ show filename
+downloadFile :: StorageId -> Hash -> FilePath -> AwsMonad ()
+downloadFile storageId expectedHash localPath = do
+    s3LogNotice $ "#S3DOWNLOAD #file " ++ show storageId
     bucketName <- awsAsks acBucket
-    resp <- send $ getObject bucketName (ObjectKey filename)
-                & goVersionId ?~ ObjectVersionId version
+    resp <- send $ getObject bucketName (ObjectKey $ storage2text storageId)
     liftResourceT $ resourceMask $ \unmask -> do
         let dir = takeDirectory localPath
         let file = takeFileName localPath
@@ -107,7 +114,7 @@ downloadFile (EntryName filename) (VersionId version) expectedHash localPath = d
             release handleReleaseKey
         liftIO $ renameFile name localPath
         void $ unprotect fileReleaseKey -- no longer needed to delete file
-    s3LogInfo $ "#S3DOWNLOADED #file " ++ show filename
+    s3LogInfo $ "#S3DOWNLOADED #objid " ++ show storageId
 
 chunkedConduit :: MonadResource m => Integer -> Conduit BS.ByteString m BL.ByteString
 chunkedConduit size = loop 0 []
