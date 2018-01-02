@@ -35,7 +35,7 @@ library
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5
                      , Glob
-                     , aws >= 0.16
+                     , aws >= 0.17
                      , amazonka
                      , amazonka-core
                      , amazonka-iam

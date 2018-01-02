@@ -64,6 +64,7 @@ setupAwsPrivateCloud root cloudid userid accesskeyid secretkey = do
                 { timeInfo = Timestamp
                 , credentials = legacyAuth
                 , logger = defaultLog Warning
+                , Aws.Aws.proxy = Nothing
                 }
             }
     let uniqueId = cloudid <> "-" <> userid

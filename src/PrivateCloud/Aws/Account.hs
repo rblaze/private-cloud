@@ -12,7 +12,7 @@ import Data.ByteArray as BA
 import Data.Monoid
 import Data.Tagged
 import Network.AWS
-import Network.AWS.IAM as IAM hiding (AccessKey)
+import Network.AWS.IAM as IAM
 import Network.AWS.S3 as S3
 --import Network.AWS.SDB as SDB
 import qualified Data.ByteString as BS
@@ -133,6 +133,7 @@ newContext (Tagged creds) = do
             { timeInfo = Timestamp
             , credentials = legacyAuth
             , logger = defaultLog Warning
+            , Aws.Aws.proxy = Nothing
             }
         }
 
@@ -156,12 +157,12 @@ createCredentials groupName userName (BucketName bucketName) domainName = do
     keyresp <- send $ IAM.createAccessKey & cakUserName ?~ userName
 
     let info = keyresp ^. cakrsAccessKey
-    let keyId = info ^. akAccessKeyId
-    let secretKey = info ^. akSecretAccessKey
+    let AccessKey keyId = info ^. akiAccessKeyId
+    let secretKey = info ^. akiSecretAccessKey
 
     -- pack credentials
     return $ BA.concat
-        [ T.encodeUtf8 keyId
+        [ keyId
         , BS.singleton 0
         , T.encodeUtf8 secretKey
         , BS.singleton 0

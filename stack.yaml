@@ -15,7 +15,7 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: lts-8.5
+resolver: lts-10.2
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -40,10 +40,7 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps:
-- aws-0.16
-- credential-store-0.1.1
-- dbus-0.10.12
-- libxml-sax-0.7.5
+- credential-store-0.1.2
 
 # Override default flag values for local packages and extra-deps
 flags: {}
