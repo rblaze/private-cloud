@@ -17,7 +17,7 @@ instance CloudProvider TestCloud where
 
     runCloud _ (CloudMonad f) = liftIO f
 
-    newContext _ = return ()
+    loadContext _ = pure ()
 
     uploadFile _ = error "uploadFile"
     downloadFile _ _ = error "downloadFile"
@@ -36,4 +36,4 @@ runTestCloud = runPrivateCloud
 setupTestCloud :: FilePath -> T.Text -> IO ScrubbedBytes
 setupTestCloud root name = do
     initCloudSettings root name
-    return BA.empty
+    pure BA.empty

@@ -1,101 +1,80 @@
-{-# Language OverloadedStrings, RecordWildCards, MultiWayIf #-}
-module PrivateCloud.Aws.Cleanup where
-
-import Conduit
-import Control.Lens
-import Control.Monad
-import Control.Monad.Trans.Resource
-import Data.Maybe
-import Data.Monoid
-import Data.Time.Clock
-import Data.Time.Clock.POSIX
-import Network.AWS (send, paginate)
-import Network.AWS.S3
-import Network.HTTP.Client (newManager)
-import Network.HTTP.Client.TLS
-import qualified Data.HashSet as HS
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+module PrivateCloud.Aws.Cleanup
+    ( deleteOldDbRecords
+    , deleteOldVersions
+    ) where
 
 import PrivateCloud.Aws.Logging
 import PrivateCloud.Aws.Monad
 import PrivateCloud.Aws.SimpleDb
+import PrivateCloud.Aws.Util
 import PrivateCloud.Provider.Types
 
 import Aws.Aws
-import Aws.Core
+import Aws.S3
 import Aws.SimpleDb
+import Conduit
+import Control.Monad (void)
+import Data.Maybe (mapMaybe)
+import Data.Time.Clock (NominalDiffTime, diffUTCTime)
+import Data.Time.Clock.POSIX (getPOSIXTime, getCurrentTime)
+import qualified Data.HashSet as HS
 
-data S3Version = S3Version
-    { s3Key :: ObjectKey
-    , s3LastModified :: UTCTime
-    }
-
--- 24 hours
+-- Purge DB records marked as deleted more than 24 hours ago.
 maxUnusedTime :: NominalDiffTime
 maxUnusedTime = 86400
 
+deleteOldDbRecords :: AwsMonad ()
+deleteOldDbRecords = do
+    sdbLogInfo "DB_CLEANUP_START"
+    domain <- acDomain <$> awsContext
+    time <- liftIO getPOSIXTime
+    let timestr = printTime $ time - maxUnusedTime
+    let querystr = "select recordmtime from `" <> domain <>
+                "` where hash = '' intersection recordmtime < '" <> timestr <> "'"
+    let query = (select querystr) { sConsistentRead = True }
+    runConduit $ awsIteratedList' awsReq query
+        .| mapM_C (deleteDbRecord domain)
+    sdbLogInfo "DB_CLEANUP_END"
+  where
+    deleteDbRecord domain Item{..} = case itemData of
+        [ ForAttribute "recordmtime" mtime ] -> do
+            sdbLogInfo $ "DB_DELETE_RECORD #file " ++ show itemName
+            void $ awsReq (deleteAttributes itemName [] domain)
+                { daExpected = [ expectedValue "recordmtime" mtime ]
+                }
+        _ -> sdbLogCritical $ "invalid attribute list " ++ show itemData
+
+-- Delete all unreferenced objects older than 24 hours: time between
+-- upload and database write should not be that long.
 deleteOldVersions :: AwsMonad ()
 deleteOldVersions = do
-    awsLogInfo "#S3CLEANUP_START"
+    sdbLogInfo "S3_CLEANUP_START"
     filelist <- getAllServerFiles
     currentTime <- liftIO getCurrentTime
     let isCloudFile (_, CloudDeleteMarker) = Nothing
         isCloudFile (_, CloudFile i) = Just (cfStorageId i)
     let knownObjects = HS.fromList $ mapMaybe isCloudFile filelist
 
-    -- delete all unreferenced objects older than 24 hours:
-    --      time between upload and database write should not be that long
-    let checkObject info
-            | HS.member storageId knownObjects = do
-                awsLogInfo $ "#S3CLEANUP_KNOWN #objid " ++ show storageId
-                return False
-            | otherwise = do
-                let age = diffUTCTime currentTime (s3LastModified info)
-                let tooOld = age > maxUnusedTime
-                if tooOld
-                    then awsLogInfo $ "#S3CLEANUP_OLD #objid " ++ show storageId ++ " #age " ++ show age
-                    else awsLogInfo $ "#S3CLEANUP_RECENT #objid " ++ show storageId ++ " #age " ++ show age
-                return tooOld
-            where
-            ObjectKey key = s3Key info
-            storageId = StorageId key
+    bucket <- acBucket <$> awsContext
+    runConduit $ awsIteratedList' awsReq (getBucket bucket)
+        .| filterMC (checkObject currentTime knownObjects)
+        .| mapM_C (deleteObj bucket)
+    sdbLogInfo "S3_CLEANUP_END"
+  where
+    checkObject currentTime knownObjects ObjectInfo{..}
+        | HS.member (StorageId objectKey) knownObjects = do
+            sdbLogInfo $ "S3_CLEANUP_KNOWN #objid " ++ show objectKey
+            pure False
+        | otherwise = do
+            let age = diffUTCTime currentTime objectLastModified
+            let tooOld = age > maxUnusedTime
+            if tooOld
+                then sdbLogInfo $ "S3_CLEANUP_OLD #objid " ++ show objectKey ++ " #age " ++ show age
+                else sdbLogInfo $ "S3_CLEANUP_RECENT #objid " ++ show objectKey ++ " #age " ++ show age
+            pure tooOld
 
-    bucketName <- awsAsks acBucket
-    runConduit $ paginate (listObjects bucketName)
-        .| unpack
-        .| filterMC checkObject
-        .| mapM_C deleteObj
-    awsLogInfo "#S3CLEANUP_END"
-    where
-    unpack = awaitForever $ \resp ->
-                forM_ (resp ^. lorsContents) $ \m ->
-                        yield $ S3Version (m ^. oKey) (m ^. oLastModified)
-    deleteObj info = do
-        let key = s3Key info
-        awsLogNotice $ "#S3DELETE #objid " ++ show key
-        bucketName <- awsAsks acBucket
-        void $ send $ deleteObject bucketName key
-
-deleteOldDbRecords :: AwsMonad ()
-deleteOldDbRecords = do
-    awsLogInfo "#DBCLEANUP_START"
-    time <- liftIO getPOSIXTime
-    domain <- awsAsks acDomain
-    let timestr = printTime $ time - maxUnusedTime
-    let querystr = "select recordmtime from `" <> domain <>
-                "` where hash = '' intersection recordmtime < '" <> timestr <> "'"
-    let query = (select querystr) { sConsistentRead = True }
-    conf <- awsAsks acLegacyConf
-    manager <- liftIO $ newManager tlsManagerSettings
-    liftResourceT $ runConduit $
-        awsIteratedList conf defServiceConfig manager query
-        .| mapM_C (deleteDbRecord conf manager domain)
-    awsLogInfo "#DBCLEANUP_END"
-    where
-    deleteDbRecord conf manager domain Item{..} = case itemData of
-        [ ForAttribute "recordmtime" mtime ] -> do
-            awsLogNotice $ "#S3DELETERECORD #file " ++ show itemName
-            void $ pureAws conf defServiceConfig manager $
-                (deleteAttributes itemName [] domain)
-                { daExpected = [ expectedValue "recordmtime" mtime ]
-                }
-        _ -> awsLogCritical $ "invalid attribute list " ++ show itemData
+    deleteObj bucket ObjectInfo{..} = do
+        sdbLogInfo $ "S3_DELETE #objid " ++ show objectKey
+        void $ awsReq $ DeleteObject objectKey bucket

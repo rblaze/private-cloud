@@ -22,7 +22,7 @@ withDbTransaction f = withDbConnection $ \conn -> withTransaction conn (f conn)
 getFileList :: PrivateCloud p DbFileList
 getFileList = withDbConnection $ \conn ->
     map convertRow <$> query_ conn "SELECT file, lastSyncedHash, lastSyncedSize, lastSyncedModTime FROM localFiles ORDER BY file"
-    where
+  where
     convertRow (file, hash, size, ts) =
         ( EntryName file
         , DbFileInfo

@@ -1,9 +1,8 @@
-{-# Language OverloadedStrings, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 module PrivateCloud.Provider.Types where
 
-import Crypto.Hash
-import Crypto.MAC.HMAC
-import Data.ByteArray.Encoding
+import Data.ByteArray.Encoding (convertToBase, Base(..))
 import Data.Hashable
 import Data.Int
 import Data.Text.Buildable
@@ -13,6 +12,7 @@ import Data.Word
 import Foreign.C.Types
 import System.FilePath
 import System.Posix.Types
+import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
@@ -54,7 +54,7 @@ ts2utc :: Timestamp -> UTCTime
 ts2utc (Timestamp ts) = posixSecondsToUTCTime $ realToFrac ts
 
 -- | Type for storage object id
-newtype StorageId = StorageId { storage2text :: T.Text }
+newtype StorageId = StorageId { storageid2text :: T.Text }
     deriving (Eq, Hashable)
 
 instance Show StorageId where
@@ -67,8 +67,8 @@ newtype Hash = Hash { hash2text :: T.Text }
 instance Show Hash where
     show (Hash h) = show h
 
-hmac2hash :: HMAC SHA512t_256 -> Hash
-hmac2hash = Hash . T.decodeUtf8 . convertToBase Base64
+encodeHash :: BS.ByteString -> Hash
+encodeHash = Hash . T.decodeUtf8 . convertToBase Base64
 
 -- other types
 

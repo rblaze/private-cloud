@@ -1,14 +1,14 @@
-{-# Language TypeFamilies, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 module PrivateCloud.Aws.Provider where
 
-import Control.Monad.IO.Class
+import Aws.Aws
+import Aws.Core
 import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Resource
 import Data.ByteArray
-import Data.Monoid
 import Data.Tagged
-import Network.AWS
-import Network.AWS.S3.Types
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
 import System.FilePath.Glob
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
@@ -17,13 +17,10 @@ import PrivateCloud.Aws.Account as AWS
 import PrivateCloud.Aws.S3 as S3
 import PrivateCloud.Aws.SimpleDb as SDB
 import PrivateCloud.Aws.Cleanup
+import PrivateCloud.Aws.Logging
 import PrivateCloud.Aws.Monad
 import PrivateCloud.Provider.Class
 import PrivateCloud.Cloud.Monad
-
---- FIXME remove when amazonka fixed
-import Aws.Aws
-import Aws.Core
 
 data AwsCloud = AwsCloud
 
@@ -31,9 +28,9 @@ instance CloudProvider AwsCloud where
     type ProviderMonad AwsCloud = AwsMonad
     type ProviderContext AwsCloud = AwsContext
 
-    newContext = AWS.newContext
+    loadContext = AWS.loadContext
 
-    runCloud (Tagged ctx) (CloudMonad (AwsMonad func)) = liftIO $ runResourceT $ runAWS (acEnv ctx) $ runReaderT func ctx
+    runCloud (Tagged ctx) (CloudMonad (AwsMonad func)) = runReaderT func ctx
 
     uploadFile f = CloudMonad $ S3.uploadFile f
     downloadFile s h f = CloudMonad $ S3.downloadFile s h f
@@ -49,41 +46,47 @@ instance CloudProvider AwsCloud where
 runAwsPrivateCloud :: ByteArray ba => FilePath -> [Pattern] -> (T.Text -> IO (Maybe ba)) -> PrivateCloud AwsCloud a -> IO a
 runAwsPrivateCloud = runPrivateCloud
 
-runAwsCloud :: MonadIO m => Tagged AwsCloud AwsContext -> CloudMonad AwsCloud a -> m a
+runAwsCloud :: Tagged AwsCloud AwsContext -> CloudMonad AwsCloud a -> IO a
 runAwsCloud = runCloud
 
 setupAwsPrivateCloud :: ByteArray ba => FilePath -> T.Text -> T.Text -> BS.ByteString -> BS.ByteString -> IO (T.Text, ba)
 setupAwsPrivateCloud root cloudid userid accesskeyid secretkey = do
-    env <- newEnv $ FromKeys (AccessKey accesskeyid) (SecretKey secretkey)
-    legacyAuth <- makeCredentials accesskeyid secretkey
+    manager <- newManager tlsManagerSettings
+    auth <- makeCredentials accesskeyid secretkey
     let ctx = Tagged AwsContext
-            { acEnv = env
-            , acBucket = BucketName $ "privatecloud-" <> cloudid
+            { acBucket = "privatecloud-" <> cloudid
             , acDomain = "privatecloud-" <> cloudid
-            , acLegacyConf = Configuration
+            , acConf = Configuration
                 { timeInfo = Timestamp
-                , credentials = legacyAuth
-                , logger = defaultLog Warning
+                , credentials = auth
+                , logger = awsLogger
                 , Aws.Aws.proxy = Nothing
                 }
+            , acManager = manager
             }
-    let uniqueId = cloudid <> "-" <> userid
+    let uniqueId = cloudid <> "--" <> userid
 
     initCloudSettings root uniqueId
     credential <- runAwsCloud ctx (CloudMonad $ createCloudInstance cloudid userid)
-    return (uniqueId, credential)
+    pure (uniqueId, credential)
 
 connectAwsPrivateCloud :: ByteArray ba => FilePath -> T.Text -> T.Text -> BS.ByteString -> BS.ByteString -> IO (T.Text, ba)
 connectAwsPrivateCloud root cloudid userid accesskeyid secretkey = do
-    env <- newEnv $ FromKeys (AccessKey accesskeyid) (SecretKey secretkey)
+    manager <- newManager tlsManagerSettings
+    auth <- makeCredentials accesskeyid secretkey
     let ctx = Tagged AwsContext
-            { acEnv = env
-            , acBucket = BucketName $ "privatecloud-" <> cloudid
+            { acBucket = "privatecloud-" <> cloudid
             , acDomain = "privatecloud-" <> cloudid
-            , acLegacyConf = error "legacy api call unexpected"
+            , acConf = Configuration
+                { timeInfo = Timestamp
+                , credentials = auth
+                , logger = awsLogger
+                , Aws.Aws.proxy = Nothing
+                }
+            , acManager = manager
             }
-    let uniqueId = cloudid <> "-" <> userid
+    let uniqueId = cloudid <> "--" <> userid
 
     initCloudSettings root uniqueId
     credential <- runAwsCloud ctx (CloudMonad $ connectCloudInstance cloudid userid)
-    return (uniqueId, credential)
+    pure (uniqueId, credential)

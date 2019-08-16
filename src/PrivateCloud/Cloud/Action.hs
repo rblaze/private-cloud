@@ -20,20 +20,17 @@ import PrivateCloud.Provider.Types
 syncAllChanges :: CloudProvider p => PrivateCloud p ()
 syncAllChanges =
     syncChanges $ \localFiles dbFiles -> do
-        ctx <- context
-        serverFiles <- runCloud ctx getAllServerFiles
+        serverFiles <- runAction getAllServerFiles
         getAllFileChanges localFiles dbFiles serverFiles
 
 syncRecentChanges :: CloudProvider p => PrivateCloud p ()
 syncRecentChanges =
     syncChanges $ \localFiles dbFiles -> do
-        ctx <- context
-        serverFiles <- runCloud ctx getRecentServerFiles
+        serverFiles <- runAction getRecentServerFiles
         getRecentFileChanges localFiles dbFiles serverFiles
 
 syncChanges :: CloudProvider p => (LocalFileList -> DbFileList -> PrivateCloud p [FileAction]) -> PrivateCloud p ()
 syncChanges getUpdates = do
-    ctx <- context
     root <- rootDir
     localFiles <- unrollTreeFiles <$> liftIO (makeTree root)
     dbFiles <- getFileList
@@ -47,7 +44,7 @@ syncChanges getUpdates = do
             let loop n = do
                     let path = localPath ++ "." ++ show n ++ conflictSuffix
                     exists <- doesFileExist path
-                    if exists then loop (n + 1) else return path
+                    if exists then loop (n + 1) else pure path
             newname <- liftIO $ loop (0 :: Int)
             liftIO $ renameFile localPath newname
             -- fetch remote file and mark it as synced
@@ -56,7 +53,7 @@ syncChanges getUpdates = do
         UpdateCloudFile{..} -> do
             logEventNotice $ "UPLOAD_FILE_START #file " ++ printEntry faFilename
             let path = root </> entry2path faFilename
-            (storageId, len, hash) <- runCloud ctx $ uploadFile path
+            (storageId, len, hash) <- runAction $ uploadFile path
             logEventNotice $ "UPLOAD_DATA_COMPLETED #file " ++ printEntry faFilename
             let cloudinfo = CloudFileInfo
                     { cfHash = hash
@@ -65,7 +62,7 @@ syncChanges getUpdates = do
                     , cfStorageId = storageId
                     }
             logEventNotice $ "UPLOAD_META_COMPLETED #file " ++ printEntry faFilename
-            runCloud ctx $ uploadFileInfo faFilename cloudinfo
+            runAction $ uploadFileInfo faFilename cloudinfo
             let dbinfo = DbFileInfo
                     { dfHash = hash
                     , dfModTime = lfModTime faLocalInfo
@@ -80,13 +77,13 @@ syncChanges getUpdates = do
                     , dfModTime = lfModTime faLocalInfo
                     , dfLength = lfLength faLocalInfo
                     }
-            runCloud ctx $ uploadFileMetadata faFilename dbinfo
+            runAction $ uploadFileMetadata faFilename dbinfo
             logEventNotice $ "UPLOAD_META_COMPLETED #file " ++ printEntry faFilename
             putFileInfo faFilename dbinfo
             logEventNotice $ "UPLOAD_META_END #file " ++ printEntry faFilename
         DeleteCloudFile{..} -> do
             logEventNotice $ "DELETE_CLOUD_START #file " ++ printEntry faFilename
-            runCloud ctx $ uploadDeleteMarker faFilename
+            runAction $ uploadDeleteMarker faFilename
             logEventNotice $ "DELETE_CLOUD_META_COMPLETED #file " ++ printEntry faFilename
             deleteFileInfo faFilename
             logEventNotice $ "DELETE_CLOUND_END #file " ++ printEntry faFilename
@@ -115,8 +112,7 @@ syncChanges getUpdates = do
 
 downloadCloudFile :: CloudProvider p => EntryName -> FilePath -> CloudFileInfo -> PrivateCloud p ()
 downloadCloudFile name localPath cloudInfo = do
-    ctx <- context
-    runCloud ctx $ downloadFile (cfStorageId cloudInfo) (cfHash cloudInfo) localPath
+    runAction $ downloadFile (cfStorageId cloudInfo) (cfHash cloudInfo) localPath
     logEventNotice $ "DOWNLOAD_DATA_COMPLETED #file " ++ printEntry name
     liftIO $ setModificationTime localPath (ts2utc $ cfModTime cloudInfo)
     putFileInfo name

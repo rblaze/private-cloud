@@ -1,27 +1,35 @@
-{-# Language GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards #-}
 module PrivateCloud.Aws.Monad where
 
+import Aws.Aws
+import Aws.Core
+import Aws.S3.Core
 import Control.Exception.Safe
-import Control.Monad.Base
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.Resource
-import Network.AWS
-import Network.AWS.S3
+import Network.HTTP.Client
 import qualified Data.Text as T
 
-import Aws.Aws
-
 data AwsContext = AwsContext
-    { acEnv :: Env
-    , acBucket :: BucketName
+    { acConf :: Configuration
+    , acBucket :: Bucket
     , acDomain :: T.Text
-    , acLegacyConf :: Configuration
+    , acManager :: Manager
     }
 
--- technically, Env is not needed inside monad, but I'm too lazy to write another type
-newtype AwsMonad a = AwsMonad (ReaderT AwsContext AWS a)
-    deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadMask, MonadThrow, MonadAWS, MonadBase IO, MonadResource)
+newtype AwsMonad a = AwsMonad (ReaderT AwsContext IO a)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow)
 
-awsAsks :: (AwsContext -> a) -> AwsMonad a
-awsAsks = AwsMonad . asks
+awsContext :: AwsMonad AwsContext
+awsContext = AwsMonad ask
+
+awsReq
+    :: (Transaction r a,
+        DefaultServiceConfiguration (ServiceConfiguration r NormalQuery))
+    => r -> AwsMonad a
+awsReq req = do
+    AwsContext{..} <- awsContext
+    liftIO $ runResourceT $ pureAws acConf defServiceConfig acManager req

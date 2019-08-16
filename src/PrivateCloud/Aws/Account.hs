@@ -1,20 +1,23 @@
-{-# Language OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 module PrivateCloud.Aws.Account
     ( connectCloudInstance
     , createCloudInstance
-    , newContext
+    , loadContext
     ) where
 
+import Aws.Aws
+import Aws.Core
+import Aws.Iam
+import Aws.S3
+import Aws.SimpleDb
 import Control.Exception.Safe
-import Control.Lens
 import Control.Monad
 import Data.ByteArray as BA
-import Data.Monoid
 import Data.Tagged
-import Network.AWS
-import Network.AWS.IAM as IAM
-import Network.AWS.S3 as S3
---import Network.AWS.SDB as SDB
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -23,57 +26,36 @@ import PrivateCloud.Aws.Monad
 import PrivateCloud.Aws.Logging
 import PrivateCloud.Cloud.Exception
 
--- XXX temporary imports to workaround amazonka bugs
-import Aws.Aws
-import Aws.Core
-import Aws.SimpleDb as AwsSDB
-
 createCloudInstance :: ByteArray ba => T.Text -> T.Text -> AwsMonad ba
 createCloudInstance cloudid userid = do
-    let groupName = "privatecloud-group-" <> cloudid
-    let userName = "privatecloud-user-" <> cloudid <> "-" <> userid
+    let groupName = "pcg-" <> cloudid
+    let userName = T.take 64 ("pcu-" <> cloudid <> "_" <> userid)
     let policyName = "PrivateCloud-Access-" <> cloudid
-    bucketName <- awsAsks acBucket
-    domainName <- awsAsks acDomain
+
+    AwsContext{..} <- awsContext
 
     -- create storage bucket
-    void $ send $ S3.createBucket bucketName
-    {- XXX: API broken in amazonka
-    void $ send $
-        S3.putBucketLifecycleConfiguration bucketName & pblcLifecycleConfiguration ?~
-            (bucketLifecycleConfiguration & blcRules .~
-                [ lifecycleRule ESEnabled & lrAbortIncompleteMultipartUpload ?~
-                    (abortIncompleteMultipartUpload & (aimuDaysAfterInitiation ?~ 2))
-                ]
-            )
-    -}
+    void $ awsReq $ putBucket acBucket
 
     -- create domain
-    {- XXX: API broken in amazonka
-    void $ send $ SDB.createDomain domainName
-    -}
-    -- XXX create domain via aws call
-    awsconfig <- awsAsks acLegacyConf
-    void $ simpleAws awsconfig defServiceConfig $ AwsSDB.createDomain domainName
+    void $ awsReq $ createDomain acDomain
 
-    -- create group
-    groupResp <- send $ IAM.createGroup groupName
+    -- create IAM group
+    CreateGroupResponse group <- awsReq $ CreateGroup groupName Nothing
 
-    let groupArn = groupResp ^. cgrsGroup ^. gARN
-    accountid <- case T.split (== ':') groupArn of
-        [_ , _, _, _, accountid, _] -> return accountid
+    accountid <- case T.split (== ':') (groupArn group) of
+        [_ , _, _, _, accountid, _] -> pure accountid
         _ -> throw $ CloudInternalError "Invalid group ARN"
 
     -- set group policy
-    let BucketName bucketstr = bucketName
-    let policyText = T.replace "BUCKET" bucketstr $
+    let policyText = T.replace "BUCKET" acBucket $
             T.replace "ACCOUNTID" accountid $
-            T.replace "DOMAIN" domainName policyTemplate
+            T.replace "DOMAIN" acDomain policyTemplate
 
-    void $ send $ IAM.putGroupPolicy groupName policyName policyText
+    void $ awsReq $ PutGroupPolicy policyText policyName groupName
 
     -- create user and return its access key
-    createCredentials groupName userName bucketName domainName
+    createCredentials groupName userName
 
 policyTemplate :: T.Text
 policyTemplate = "{                                                 \
@@ -117,56 +99,52 @@ policyTemplate = "{                                                 \
 \    ]                                                              \
 \}"
 
-newContext :: ByteArray ba => Tagged p ba -> IO AwsContext
-newContext (Tagged creds) = do
+loadContext :: ByteArray ba => Tagged p ba -> IO AwsContext
+loadContext (Tagged creds) = do
     [keyid, key, bucketName, domainName] <-
         case BS.split 0 (convert creds) of
-            v@[_, _, _, _] -> return v
+            v@[_, _, _, _] -> pure v
             _ -> throw $ CloudInternalError "Invalid credentials format"
-    env <- newEnv $ FromKeys (AccessKey keyid) (SecretKey key)
-    legacyAuth <- makeCredentials keyid key
-    return AwsContext
-        { acEnv = env & envLogger .~ amazonkaLogger
-        , acBucket = BucketName $ T.decodeUtf8 bucketName
-        , acDomain = T.decodeUtf8 domainName
-        , acLegacyConf = Configuration
+    auth <- makeCredentials keyid key
+    manager <- newManager tlsManagerSettings
+    pure AwsContext
+        { acConf = Configuration
             { timeInfo = Timestamp
-            , credentials = legacyAuth
-            , logger = defaultLog Warning
+            , credentials = auth
+            , logger = awsLogger
             , Aws.Aws.proxy = Nothing
             }
+        , acBucket = T.decodeUtf8 bucketName
+        , acDomain = T.decodeUtf8 domainName
+        , acManager = manager
         }
 
 connectCloudInstance :: ByteArray ba => T.Text -> T.Text -> AwsMonad ba
 connectCloudInstance cloudid userid = do
-    let groupName = "privatecloud-group-" <> cloudid
-    let userName = "privatecloud-user-" <> cloudid <> "-" <> userid
-    bucketName <- awsAsks acBucket
-    domainName <- awsAsks acDomain
+    let groupName = "pcg-" <> cloudid
+    let userName = T.take 64 ("pcu-" <> cloudid <> "_" <> userid)
 
     -- create user and return its access key
-    createCredentials groupName userName bucketName domainName
+    createCredentials groupName userName
 
-createCredentials :: ByteArray ba => T.Text -> T.Text -> BucketName -> T.Text -> AwsMonad ba
-createCredentials groupName userName (BucketName bucketName) domainName = do
+createCredentials :: ByteArray ba => T.Text -> T.Text -> AwsMonad ba
+createCredentials groupName userName = do
+    AwsContext{..} <- awsContext
+
     -- create user
-    void $ send $ IAM.createUser userName
+    void $ awsReq $ CreateUser userName Nothing
     -- add user to group
-    void $ send $ IAM.addUserToGroup groupName userName
+    void $ awsReq $ AddUserToGroup groupName userName
     -- create access key
-    keyresp <- send $ IAM.createAccessKey & cakUserName ?~ userName
-
-    let info = keyresp ^. cakrsAccessKey
-    let AccessKey keyId = info ^. akiAccessKeyId
-    let secretKey = info ^. akiSecretAccessKey
+    CreateAccessKeyResponse AccessKey{..} <- awsReq $ CreateAccessKey (Just userName)
 
     -- pack credentials
-    return $ BA.concat
-        [ keyId
+    pure $ BA.concat
+        [ T.encodeUtf8 akAccessKeyId
         , BS.singleton 0
-        , T.encodeUtf8 secretKey
+        , T.encodeUtf8 akSecretAccessKey
         , BS.singleton 0
-        , T.encodeUtf8 bucketName
+        , T.encodeUtf8 acBucket
         , BS.singleton 0
-        , T.encodeUtf8 domainName
+        , T.encodeUtf8 acDomain
         ]

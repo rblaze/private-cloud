@@ -1,7 +1,9 @@
-{-# Language TypeFamilies, StandaloneDeriving, GeneralizedNewtypeDeriving, UndecidableInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module PrivateCloud.Provider.Class where
 
-import Control.Monad.IO.Class
 import Data.ByteArray
 import Data.Tagged
 
@@ -17,28 +19,31 @@ class CloudProvider p where
     type ProviderMonad p :: * -> *
     type ProviderContext p :: *
 
-    -- | Create provider context from saved credentials, used to run cloud instance.
-    newContext :: ByteArray ba => Tagged p ba -> IO (ProviderContext p)
+    -- | Create a provider context from saved credentials,
+    -- used to run cloud instance.
+    loadContext :: ByteArray ba => Tagged p ba -> IO (ProviderContext p)
 
-    -- | Run actions in cloud monad with given context.
-    runCloud :: MonadIO m => Tagged p (ProviderContext p) -> CloudMonad p a -> m a
+    -- | Run actions in cloud monad with the given context.
+    runCloud :: Tagged p (ProviderContext p) ->
+        CloudMonad p a -> IO a
 
-    -- | Update or create file information in cloud.
+    -- | Update or create file information in the cloud.
     uploadFileInfo :: EntryName -> CloudFileInfo -> CloudMonad p ()
-    -- | Update file information in cloud. Record must exist and hash value match.
+    -- | Update file information in the cloud. The record must exist
+    -- and hash value match.
     uploadFileMetadata :: EntryName -> DbFileInfo -> CloudMonad p ()
     -- | Mark file as deleted.
     uploadDeleteMarker :: EntryName -> CloudMonad p ()
-    -- | Get entire cloud database.
+    -- | Get the entire cloud database.
     getAllServerFiles :: CloudMonad p CloudFileList
     -- | Get recently updated file entries.
     getRecentServerFiles :: CloudMonad p CloudFileList
 
-    -- | Upload file to cloud storage. Get back it's storage id, actual length and
-    -- hash of bytes uploaded.
+    -- | Upload file to cloud storage. Get back its storage id, actual length
+    -- and hash of bytes uploaded.
     uploadFile :: FilePath -> CloudMonad p (StorageId, Length, Hash)
     -- | Download file from cloud storage.
     downloadFile :: StorageId -> Hash -> FilePath -> CloudMonad p ()
 
-    -- | Clean obsolete entries from cloud database and storage.
+    -- | Clean obsolete entries from the cloud database and storage.
     cleanupCloud :: CloudMonad p ()

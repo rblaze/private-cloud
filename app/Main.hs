@@ -8,7 +8,7 @@ import Control.Monad.IO.Class
 import Data.ByteArray (ScrubbedBytes)
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
-import Data.Word
+import Data.UUID (UUID)
 import System.Console.Haskeline hiding (bracket)
 import System.CredentialStore
 import System.Directory
@@ -17,7 +17,7 @@ import System.FileLock
 import System.FilePath
 import System.FilePath.Glob
 import System.Log.Logger
-import System.Random
+import System.Random (randomIO)
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -43,11 +43,14 @@ main = do
 encodeUtf :: String -> BS.ByteString
 encodeUtf = T.encodeUtf8 . T.pack
 
+genRandomId :: IO T.Text
+genRandomId = fmap (T.pack . show) (randomIO :: IO UUID)
+
 whileNothing :: Monad m => m (Maybe b) -> m b
 whileNothing prompt = do
     resp <- prompt
     case resp of
-        Just v -> return v
+        Just v -> pure v
         Nothing -> whileNothing prompt
 
 run :: Options -> IO ()
@@ -58,30 +61,23 @@ run Create{cloudId = cloudid, ..} = do
             ++ ", can't create new cloud instance"
         exitFailure
 
-    instanceId <- if null cloudid
-                then do
-                    randomId <- getStdRandom random
-                    return $ show (randomId :: Word32)
-                else
-                    return cloudid
-    userId <- do
-        randomId <- getStdRandom random
-        return $ show (randomId :: Word32)
+    instanceId <- if null cloudid then genRandomId else pure (T.pack cloudid)
+    userId <- genRandomId
 
-    putStrLn $ "Creating cloud instance " ++ instanceId ++ " with user " ++ userId
+    putStrLn $ "Creating cloud instance " ++ T.unpack instanceId ++ " with user " ++ T.unpack userId
 
     (rootKeyId, rootSecretKey) <-
         runInputT (defaultSettings { autoAddHistory = False }) $ do
             keyid <- if null adminKeyId
                 then whileNothing $ getInputLine "Admin AccessKeyId: "
-                else return adminKeyId
+                else pure adminKeyId
             secret <- if null adminSecretKey
                 then whileNothing $ getPassword (Just '*') "Admin SecretKey: "
-                else return adminSecretKey
-            return (encodeUtf keyid, encodeUtf secret)
+                else pure adminSecretKey
+            pure (encodeUtf keyid, encodeUtf secret)
 
     createDirectoryIfMissing True root
-    (uniqueId, credentials) <- setupAwsPrivateCloud root (T.pack instanceId) (T.pack userId) rootKeyId rootSecretKey
+    (uniqueId, credentials) <- setupAwsPrivateCloud root instanceId userId rootKeyId rootSecretKey
     withCredentialStore $ \store ->
         let credName = "privatecloud-" ++ T.unpack uniqueId
          in putCredential store credName (credentials :: ScrubbedBytes)
@@ -97,23 +93,21 @@ run Connect{cloudId = cloudid, ..} = do
         runInputT (defaultSettings { autoAddHistory = False }) $ do
             instanceid <- if null cloudid
                 then whileNothing $ getInputLine "Cloud instance: "
-                else return cloudid
+                else pure cloudid
             keyid <- if null adminKeyId
                 then whileNothing $ getInputLine "Admin AccessKeyId: "
-                else return adminKeyId
+                else pure adminKeyId
             secret <- if null adminSecretKey
                 then whileNothing $ getPassword (Just '*') "Admin SecretKey: "
-                else return adminSecretKey
-            return (instanceid, encodeUtf keyid, encodeUtf secret)
+                else pure adminSecretKey
+            pure (instanceid, encodeUtf keyid, encodeUtf secret)
 
-    userId <- do
-        randomId <- getStdRandom random
-        return $ show (randomId :: Word32)
+    userId <- genRandomId
 
-    putStrLn $ "Connecting to cloud instance " ++ instanceId ++ " as user " ++ userId
+    putStrLn $ "Connecting to cloud instance " ++ instanceId ++ " as user " ++ T.unpack userId
 
     createDirectoryIfMissing True root
-    (uniqueId, credentials) <- connectAwsPrivateCloud root (T.pack instanceId) (T.pack userId) rootKeyId rootSecretKey
+    (uniqueId, credentials) <- connectAwsPrivateCloud root (T.pack instanceId) userId rootKeyId rootSecretKey
     withCredentialStore $ \store ->
         let credName = "privatecloud-" ++ T.unpack uniqueId
          in putCredential store credName (credentials :: ScrubbedBytes)
@@ -138,7 +132,7 @@ run Run{..} = do
                 exitFailure
             Right pattern -> do
                 infoM appLoggerName $ "#EXCLUSION #pattern " ++ show pat
-                return pattern
+                pure pattern
 
     let getCred uniqueId =
             let credName = "privatecloud-" ++ T.unpack uniqueId
@@ -149,7 +143,7 @@ run Run{..} = do
             Nothing -> do
                 putStrLn $ "Service already running in " ++ root
                 exitFailure
-            Just lock -> return lock
+            Just lock -> pure lock
 
     bracket lockOrDie unlockFile $ const $ runAwsPrivateCloud root patterns getCred $ do
         instanceId <- Cloud.cloudId
@@ -163,7 +157,7 @@ run Run{..} = do
                         -- This way after cloud outage all clients will not
                         -- try to do database cleanup at once.
                         currentTime <- liftIO getCurrentTime
-                        return (lastFullSyncTime, currentTime)
+                        pure (lastFullSyncTime, currentTime)
                 liftIO $ threadDelay (1000000 * fromIntegral syncInterval)
                 loop lfst lct
 
@@ -174,23 +168,22 @@ run Run{..} = do
                 lfst <- if sinceLastFullSync > fullSyncDelay
                     then do
                         syncAllChanges
-                        return currentTime
+                        pure currentTime
                     else do
                         liftIO $ noticeM appLoggerName $ "#TIMER #tillNextFullSync " ++ show (fullSyncDelay - sinceLastFullSync)
                         syncRecentChanges
-                        return lastFullSyncTime
+                        pure lastFullSyncTime
 
                 let sinceLastCleanup = diffUTCTime currentTime lastCleanupTime
                 lct <- if sinceLastCleanup > cleanupDelay
                     then do
-                        ctx <- context
-                        runCloud ctx cleanupCloud
-                        return currentTime
+                        runAction cleanupCloud
+                        pure currentTime
                     else do
                         liftIO $ noticeM appLoggerName $ "#TIMER #tillNextCleanup " ++ show (cleanupDelay - sinceLastCleanup)
-                        return lastCleanupTime
+                        pure lastCleanupTime
 
-                return (lfst, lct)
+                pure (lfst, lct)
 
         -- Force first sync to be full, but delay cleanup.
         startTime <- liftIO getCurrentTime

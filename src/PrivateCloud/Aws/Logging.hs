@@ -1,36 +1,35 @@
-module PrivateCloud.Aws.Logging where
+module PrivateCloud.Aws.Logging
+    ( awsLogger
+    , sdbLogInfo
+    , sdbLogCritical
+    , s3LogInfo
+    ) where
 
-import Blaze.ByteString.Builder
+import Aws.Aws
 import Control.Monad.IO.Class
-import Control.Monad.Trans.AWS
-import Data.Text.Lazy
-import Data.Text.Lazy.Encoding
-import Data.Text.Encoding.Error
 import System.Log.Logger
+import qualified Data.Text as T
 
 awsLoggerName :: String
 awsLoggerName = "PrivateCloud.AWS"
 
-awsLogDebug :: MonadIO m => String -> m ()
-awsLogDebug = liftIO . debugM awsLoggerName
+awsLogger :: Aws.Aws.Logger
+awsLogger Debug = debugM awsLoggerName . T.unpack
+awsLogger Info = infoM awsLoggerName . T.unpack
+awsLogger Warning = warningM awsLoggerName . T.unpack
+awsLogger Error = errorM awsLoggerName . T.unpack
 
-awsLogInfo :: MonadIO m => String -> m ()
-awsLogInfo = liftIO . infoM awsLoggerName
+sdbLoggerName :: String
+sdbLoggerName = awsLoggerName <> ".SimpleDb"
 
-awsLogNotice :: MonadIO m => String -> m ()
-awsLogNotice = liftIO . noticeM awsLoggerName
+sdbLogInfo :: MonadIO m => String -> m ()
+sdbLogInfo = liftIO . infoM sdbLoggerName
 
-awsLogError :: MonadIO m => String -> m ()
-awsLogError = liftIO . errorM awsLoggerName
+sdbLogCritical :: MonadIO m => String -> m ()
+sdbLogCritical = liftIO . criticalM sdbLoggerName
 
-awsLogCritical :: MonadIO m => String -> m ()
-awsLogCritical = liftIO . criticalM awsLoggerName
+s3LoggerName :: String
+s3LoggerName = awsLoggerName <> ".S3"
 
-builder2string :: Builder -> String
-builder2string = unpack . decodeUtf8With lenientDecode . toLazyByteString
-
-amazonkaLogger :: LogLevel -> Builder -> IO ()
-amazonkaLogger Trace = awsLogDebug . builder2string
-amazonkaLogger Debug = awsLogInfo . builder2string
-amazonkaLogger Info = awsLogNotice . builder2string
-amazonkaLogger Error = awsLogError . builder2string
+s3LogInfo :: MonadIO m => String -> m ()
+s3LogInfo = liftIO . infoM s3LoggerName

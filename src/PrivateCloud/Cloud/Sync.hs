@@ -96,7 +96,7 @@ zipLists3 as [] [] = map (\(f, a) -> (f, Just a, Nothing, Nothing)) as
 zipLists3 [] bs [] = map (\(f, b) -> (f, Nothing, Just b, Nothing)) bs
 zipLists3 [] [] cs = map (\(f, c) -> (f, Nothing, Nothing, Just c)) cs
 zipLists3 as bs cs = (firstName, aval, bval, cval) : zipLists3 as' bs' cs'
-    where
+  where
     ha = headMay as
     hb = headMay bs
     hc = headMay cs
@@ -139,19 +139,19 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
             -- server file added
             let CloudFileInfo{..} = cloudinfo
             logServerNew filename cfLength
-            return $ Just $ UpdateLocalFile filename cloudinfo
+            pure $ Just $ UpdateLocalFile filename cloudinfo
         (_, Nothing, Nothing, Just CloudDeleteMarker) ->
             -- server file added and deleted, effectively no change
-            return Nothing
+            pure Nothing
         (filename, Just localinfo@LocalFileInfo{..}, Nothing, Nothing) -> do
             -- local file added
             logLocalNew filename lfLength
-            return $ Just $ UpdateCloudFile filename localinfo
+            pure $ Just $ UpdateCloudFile filename localinfo
         (filename, Just localinfo@LocalFileInfo{..}, Nothing, Just CloudDeleteMarker) -> do
             -- local file added, server file added and deleted
             -- uploading local file
             logLocalNew filename lfLength
-            return $ Just $ UpdateCloudFile filename localinfo
+            pure $ Just $ UpdateCloudFile filename localinfo
         (filename, Just localinfo@LocalFileInfo{..}, Nothing, Just (CloudFile cloudinfo)) -> do
             -- local file added, server file added
             -- check if files are the same
@@ -161,7 +161,7 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                 then do
                     -- files differ
                     logConflict filename lfLength cfLength
-                    return $ Just $ ResolveConflict filename cloudinfo
+                    pure $ Just $ ResolveConflict filename cloudinfo
                 else
                     -- somehow files are the same, maybe we just lost local db
                     -- just set latest timestamp everywhere
@@ -170,17 +170,17 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
             -- local delete and nobody updated db recently, so file must be there
             -- delete cloud file
             logLocalDelete filename
-            return $ Just $ DeleteCloudFile filename
+            pure $ Just $ DeleteCloudFile filename
         (filename, Nothing, Just DbFileInfo{}, Nothing) -> do
             -- both deleted
             -- delete local db entry
             logLocalDelete filename
-            return $ Just $ DeleteLocalFile filename
+            pure $ Just $ DeleteLocalFile filename
         (filename, Nothing, Just DbFileInfo{}, Just CloudDeleteMarker) -> do
             -- both deleted again
             -- delete local db entry
             logLocalDelete filename
-            return $ Just $ DeleteLocalFile filename
+            pure $ Just $ DeleteLocalFile filename
         (filename, Nothing, Just DbFileInfo{..}, Just (CloudFile cloudinfo)) -> do
             -- local file deleted
             -- check if cloud version is the same as the local was
@@ -190,12 +190,12 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                     -- local deleted, cloud unchanged
                     -- delete cloud file
                     logLocalDelete filename
-                    return $ Just $ DeleteCloudFile filename
+                    pure $ Just $ DeleteCloudFile filename
                 else do
                     -- local deleted, but cloud has newer version
                     -- download it
                     liftIO $ noticeM syncLoggerName $ "#UPD_SERVER_DELETE_LOCAL #file " ++ printEntry filename ++ " #size " ++ show cfLength
-                    return $ Just $ UpdateLocalFile filename cloudinfo
+                    pure $ Just $ UpdateLocalFile filename cloudinfo
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) | onlyRecentServerFiles -> do
             -- file deleted on server or we have no server status
             -- check if it was modified locally
@@ -203,13 +203,13 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
             if | fileChanged -> do
                     -- local file changed, upload to cloud in any case
                     logLocalChange filename dfLength lfLength
-                    return $ Just $ UpdateCloudFile filename localinfo
+                    pure $ Just $ UpdateCloudFile filename localinfo
                | lfModTime /= dfModTime -> do
                     -- metadata updated, was not recently updated on server
                     -- try to update metadata, it will fail if file deleted
                     logLocalMetadataChange filename dfModTime lfModTime
-                    return $ Just $ UpdateCloudMetadata filename localinfo dfHash
-               | otherwise -> return Nothing -- no change at all
+                    pure $ Just $ UpdateCloudMetadata filename localinfo dfHash
+               | otherwise -> pure Nothing -- no change at all
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Nothing) -> do
                 -- file deleted on server
                 -- check if it was modified locally
@@ -218,11 +218,11 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                 then do
                     -- local file changed, upload to cloud in any case
                     logLocalChange filename dfLength lfLength
-                    return $ Just $ UpdateCloudFile filename localinfo
+                    pure $ Just $ UpdateCloudFile filename localinfo
                 else do
                     -- no local change, for sure absent on server, delete
                     logServerDelete filename
-                    return $ Just $ DeleteLocalFile filename
+                    pure $ Just $ DeleteLocalFile filename
         (filename, Just localinfo@LocalFileInfo{..}, Just DbFileInfo{..}, Just CloudDeleteMarker) -> do
             -- file deleted on server
             -- check if it was modified locally
@@ -231,11 +231,11 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
                 then do
                     -- local file changed, upload to cloud
                     logLocalChange filename dfLength lfLength
-                    return $ Just $ UpdateCloudFile filename localinfo
+                    pure $ Just $ UpdateCloudFile filename localinfo
                 else do
                     -- no local change, delete it
                     logServerDelete filename
-                    return $ Just $ DeleteLocalFile filename
+                    pure $ Just $ DeleteLocalFile filename
         (filename, Just localinfo@LocalFileInfo{..}, Just dbinfo@DbFileInfo{..}, Just (CloudFile cloudinfo)) -> do
             let CloudFileInfo{..} = cloudinfo
             -- let's not check file hash every time
@@ -247,42 +247,42 @@ getFileChanges onlyRecentServerFiles root localFiles dbFiles cloudFiles = do
             if | localFileUpdated && cloudFileUpdated -> do
                     -- both files updated
                     logConflict filename lfLength cfLength
-                    return $ Just $ ResolveConflict filename cloudinfo
+                    pure $ Just $ ResolveConflict filename cloudinfo
                | localFileUpdated -> do
                     -- local file changed, upload to cloud
                     logLocalChange filename dfLength lfLength
-                    return $ Just $ UpdateCloudFile filename localinfo
+                    pure $ Just $ UpdateCloudFile filename localinfo
                | cloudFileUpdated -> do
                     -- cloud file changed, download it
                     logServerChange filename dbinfo cloudinfo
-                    return $ Just $ UpdateLocalFile filename cloudinfo
+                    pure $ Just $ UpdateLocalFile filename cloudinfo
                | otherwise ->
                     -- no content update, check for metadata updates
                     if not localMetadataUpdated && not cloudMetadataUpdated
-                        then return Nothing
+                        then pure Nothing
                         else syncModTimes filename dfHash localinfo cloudinfo
 
-    return $ catMaybes changes
+    pure $ catMaybes changes
   where
     files = zipLists3 localFiles dbFiles cloudFiles
     isLocalFileChangedFast filename newLength oldLength newTs oldTs oldHash
-        | newLength /= oldLength = return True  -- length changed => file changed
-        | newTs == oldTs = return False         -- length is the same and ts is the same => nothing changed
+        | newLength /= oldLength = pure True  -- length changed => file changed
+        | newTs == oldTs = pure False         -- length is the same and ts is the same => nothing changed
         | otherwise = isLocalFileContentChanged filename oldHash
     isLocalFileChanged filename newLength oldLength oldHash
-        | newLength /= oldLength = return True
+        | newLength /= oldLength = pure True
         | otherwise = isLocalFileContentChanged filename oldHash
     isLocalFileContentChanged filename oldHash = do
         liftIO $ infoM syncLoggerName $ "#CHECK_HASH #file " ++ printEntry filename
-        localHash <- liftIO $ getFileHash (root </> entry2path filename)
-        return $ localHash /= oldHash
+        localHash <- liftIO $ makeFileHash (root </> entry2path filename)
+        pure $ localHash /= oldHash
     syncModTimes filename hash localinfo cloudinfo = do
         let LocalFileInfo{..} = localinfo
         let CloudFileInfo{..} = cloudinfo
         if lfModTime > cfModTime
             then do
                 logLocalMetadataChange filename cfModTime lfModTime
-                return $ Just $ UpdateCloudMetadata filename localinfo hash
+                pure $ Just $ UpdateCloudMetadata filename localinfo hash
             else do
                 logServerMetadataChange filename lfModTime cfModTime
-                return $ Just $ UpdateLocalMetadata filename cloudinfo
+                pure $ Just $ UpdateLocalMetadata filename cloudinfo

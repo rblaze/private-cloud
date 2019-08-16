@@ -10,6 +10,7 @@ module PrivateCloud.Cloud.Monad
     , initCloudSettings
     , rootDir
     , runPrivateCloud
+    , runAction
     ) where
 
 import Control.Exception.Safe
@@ -50,11 +51,11 @@ runPrivateCloud root excls getCreds (PrivateCloud f) =
     withConnection (root </> dbName) $ \conn -> do
         cloudid <- readSetting conn uniqueIdSetting >>= \case
             Nothing -> throw $ ConfigurationError "No saved cloudid found"
-            Just v -> return v
+            Just v -> pure v
         creds <- getCreds cloudid >>= \case
             Nothing -> throw $ ConfigurationError "No saved credential found"
-            Just v -> return v
-        ctx <- newContext (Tagged creds :: Tagged p ba)
+            Just v -> pure v
+        ctx <- loadContext (Tagged creds :: Tagged p ba)
         runReaderT f CloudContext
             { ccConnection = conn
             , ccExclusions = excls
@@ -75,8 +76,8 @@ readSetting :: Connection -> String -> IO (Maybe T.Text)
 readSetting conn name = do
     rows <- query conn "SELECT value FROM settings WHERE name = ?" (Only name)
     case rows of
-        [Only value] -> return (Just value)
-        _ -> return Nothing
+        [Only value] -> pure (Just value)
+        _ -> pure Nothing
 
 connection :: PrivateCloud p Connection
 connection = PrivateCloud (asks ccConnection)
@@ -92,3 +93,8 @@ rootDir = PrivateCloud (asks ccRoot)
 
 context :: CloudProvider p => PrivateCloud p (Tagged p (ProviderContext p))
 context = PrivateCloud (asks ccContext)
+
+runAction :: CloudProvider p => CloudMonad p b -> PrivateCloud p b
+runAction f = do
+    ctx <- context
+    liftIO $ runCloud ctx f

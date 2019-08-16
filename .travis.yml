@@ -1,7 +1,8 @@
 sudo: false
 os:
     - linux
-    - osx
+# dbus 1.2.6 fails to build on macos. And we have no key storage there anyway.
+#    - osx
 cache:
     directories:
         - $HOME/.stack
@@ -11,20 +12,16 @@ addons:
         - hvr-ghc
     packages:
         - libgmp-dev
-        - ghc-8.0.2
-env:
-    - BUILD=stack STACK_ARGS="--system-ghc"
+        - libsodium-dev
 
 before_install:
     - |
-        set -ex
         if [ "$TRAVIS_OS_NAME" == "linux" ]; then
           mkdir -p ~/.local/bin
           export PATH=$HOME/.local/bin:$PATH
-          travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+          travis_retry curl -L https://get.haskellstack.org/stable/linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
           export PATH=/opt/ghc/8.0.2/bin:$PATH
         fi
-        set +ex
     - |
         if [ "$TRAVIS_OS_NAME" == "osx" ]; then
           brew update
@@ -32,14 +29,8 @@ before_install:
         fi
 
 install:
-    - if [ "$TRAVIS_OS_NAME" == "osx" ]; then stack $STACK_ARGS --no-terminal setup ; fi
-    - |
-        set -ex
-        stack $STACK_ARGS --no-terminal test --only-snapshot
-        set +ex
+    - if [ "$TRAVIS_OS_NAME" == "osx" ]; then stack --no-terminal setup ; fi
+    - stack --no-terminal --install-ghc test --only-dependencies
 
 script:
-    - |
-        set -ex
-        stack $STACK_ARGS --no-terminal test private-cloud
-        set +ex
+    - stack --no-terminal test
