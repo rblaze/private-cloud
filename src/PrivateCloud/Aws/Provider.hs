@@ -43,7 +43,7 @@ instance CloudProvider AwsCloud where
 
     cleanupCloud = CloudMonad $ deleteOldVersions >> deleteOldDbRecords
 
-runAwsPrivateCloud :: ByteArray ba => FilePath -> [Pattern] -> (T.Text -> IO (Maybe ba)) -> PrivateCloud AwsCloud a -> IO a
+runAwsPrivateCloud :: ByteArrayAccess ba => FilePath -> [Pattern] -> (T.Text -> IO (Maybe ba)) -> PrivateCloud AwsCloud a -> IO a
 runAwsPrivateCloud = runPrivateCloud
 
 runAwsCloud :: Tagged AwsCloud AwsContext -> CloudMonad AwsCloud a -> IO a

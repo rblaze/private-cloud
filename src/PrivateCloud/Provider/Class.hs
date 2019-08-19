@@ -21,7 +21,7 @@ class CloudProvider p where
 
     -- | Create a provider context from saved credentials,
     -- used to run cloud instance.
-    loadContext :: ByteArray ba => Tagged p ba -> IO (ProviderContext p)
+    loadContext :: ByteArrayAccess ba => Tagged p ba -> IO (ProviderContext p)
 
     -- | Run actions in cloud monad with the given context.
     runCloud :: Tagged p (ProviderContext p) ->

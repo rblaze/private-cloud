@@ -99,7 +99,7 @@ policyTemplate = "{                                                 \
 \    ]                                                              \
 \}"
 
-loadContext :: ByteArray ba => Tagged p ba -> IO AwsContext
+loadContext :: ByteArrayAccess ba => Tagged p ba -> IO AwsContext
 loadContext (Tagged creds) = do
     [keyid, key, bucketName, domainName] <-
         case BS.split 0 (convert creds) of

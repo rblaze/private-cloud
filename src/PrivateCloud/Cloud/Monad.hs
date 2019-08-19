@@ -1,4 +1,6 @@
-{-# Language OverloadedStrings, GeneralizedNewtypeDeriving, TypeFamilies, ScopedTypeVariables, LambdaCase #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module PrivateCloud.Cloud.Monad
     ( PrivateCloud
     , cloudId
@@ -47,7 +49,7 @@ data CloudContext p = CloudContext
 newtype PrivateCloud p a = PrivateCloud (ReaderT (CloudContext p) IO a)
     deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch)
 
-runPrivateCloud :: forall ba p a. (ByteArray ba, CloudProvider p) => FilePath -> [Pattern] -> (T.Text -> IO (Maybe ba)) -> PrivateCloud p a -> IO a
+runPrivateCloud :: forall ba p a. (ByteArrayAccess ba, CloudProvider p) => FilePath -> [Pattern] -> (T.Text -> IO (Maybe ba)) -> PrivateCloud p a -> IO a
 runPrivateCloud root excls getCreds (PrivateCloud f) =
     withConnection (root </> dbName) $ \conn -> do
         cloudid <- fromMaybeM (throw $ ConfigurationError "No saved cloudid found") $
