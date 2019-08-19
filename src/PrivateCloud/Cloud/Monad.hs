@@ -14,6 +14,7 @@ module PrivateCloud.Cloud.Monad
     ) where
 
 import Control.Exception.Safe
+import Control.Monad.Extra (fromMaybeM)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Database.SQLite.Simple
@@ -49,12 +50,10 @@ newtype PrivateCloud p a = PrivateCloud (ReaderT (CloudContext p) IO a)
 runPrivateCloud :: forall ba p a. (ByteArray ba, CloudProvider p) => FilePath -> [Pattern] -> (T.Text -> IO (Maybe ba)) -> PrivateCloud p a -> IO a
 runPrivateCloud root excls getCreds (PrivateCloud f) =
     withConnection (root </> dbName) $ \conn -> do
-        cloudid <- readSetting conn uniqueIdSetting >>= \case
-            Nothing -> throw $ ConfigurationError "No saved cloudid found"
-            Just v -> pure v
-        creds <- getCreds cloudid >>= \case
-            Nothing -> throw $ ConfigurationError "No saved credential found"
-            Just v -> pure v
+        cloudid <- fromMaybeM (throw $ ConfigurationError "No saved cloudid found") $
+            readSetting conn uniqueIdSetting
+        creds <- fromMaybeM (throw $ ConfigurationError "No saved credential found") $
+            getCreds cloudid
         ctx <- loadContext (Tagged creds :: Tagged p ba)
         runReaderT f CloudContext
             { ccConnection = conn
