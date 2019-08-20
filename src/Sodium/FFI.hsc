@@ -1,8 +1,13 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 module Sodium.FFI where
 
+import Data.Void
 import Foreign.C.Types
 import Foreign.Ptr
+
+foreign import ccall unsafe "memcmp" std_memcmp :: Ptr Void -> Ptr Void -> CSize -> CInt
+
+foreign import ccall unsafe "memcpy" std_memcpy :: Ptr Void -> Ptr Void -> CSize -> IO (Ptr Void)
 
 #include <sodium.h>
 
@@ -40,3 +45,9 @@ foreign import ccall "crypto_generichash_init" c_generichash_init :: Ptr CRYPTO_
 foreign import ccall "crypto_generichash_update" c_generichash_update :: Ptr CRYPTO_generichash_state -> Ptr CUChar -> CULLong -> IO CInt
 
 foreign import ccall "crypto_generichash_final" c_generichash_final :: Ptr CRYPTO_generichash_state -> Ptr CUChar -> CSize -> IO CInt
+
+foreign import ccall unsafe "sodium_malloc" c_malloc :: CSize -> IO (Ptr Void)
+
+foreign import ccall unsafe "&sodium_free" c_free_ptr :: FunPtr (Ptr Void -> IO ())
+
+foreign import ccall unsafe "sodium_memcmp" c_memcmp :: Ptr Void -> Ptr Void -> CSize -> CInt

@@ -37,6 +37,7 @@ library
                        Sodium.FFI
                        Sodium.Hash
                        Sodium.Init
+                       Sodium.Memory
   extra-libraries:     sodium
   ghc-options:         -W -Wall
   build-depends:       base >= 4.7 && < 5
@@ -105,11 +106,13 @@ test-suite private-cloud-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
-  other-modules:       CloudTests
+  other-modules:       Arbitrary
+                     , CloudTests
                      , Provider
                      , SodiumTests
   build-depends:       base
                      , Glob
+                     , QuickCheck
                      , bytestring
                      , directory
                      , directory-tree
@@ -120,6 +123,8 @@ test-suite private-cloud-test
                      , tagged
                      , tasty
                      , tasty-hunit
+                     , tasty-quickcheck
+                     , quickcheck-instances
                      , temporary
                      , text
   if os(windows)
